@@ -1,0 +1,9 @@
+target/
+.DS_Store
+tmp/
+.cargo/config.toml
+*.vsix
+.env
+.env.*
+!.env.example
+.npmrc

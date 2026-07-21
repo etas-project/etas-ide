@@ -1,0 +1,351 @@
+{
+    "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+    "name": "Etas",
+    "fileTypes": [
+        "es"
+    ],
+    "scopeName": "source.etas",
+    "patterns": [
+        {
+            "include": "#block-comments"
+        },
+        {
+            "include": "#comments"
+        },
+        {
+            "include": "#strings"
+        },
+        {
+            "include": "#constants"
+        },
+        {
+            "include": "#keywords"
+        },
+        {
+            "include": "#modules"
+        },
+        {
+            "include": "#types"
+        },
+        {
+            "include": "#punctuation"
+        }
+    ],
+    "repository": {
+        "comments": {
+            "patterns": [
+                {
+                    "comment": "doc comments",
+                    "name": "comment.line.documentation.etas",
+                    "match": "(///).*$",
+                    "captures": {
+                        "1": {
+                            "name": "punctuation.definition.comment.etas"
+                        }
+                    }
+                },
+                {
+                    "comment": "line comments",
+                    "name": "comment.line.double-slash.etas",
+                    "match": "(//).*$",
+                    "captures": {
+                        "1": {
+                            "name": "punctuation.definition.comment.etas"
+                        }
+                    }
+                }
+            ]
+        },
+        "block-comments": {
+            "patterns": [
+                {
+                    "comment": "empty block comments",
+                    "name": "comment.block.etas",
+                    "match": "/\\*\\*/"
+                },
+                {
+                    "comment": "block doc comments",
+                    "name": "comment.block.documentation.etas",
+                    "begin": "/\\*\\*",
+                    "end": "\\*/",
+                    "patterns": [
+                        {
+                            "include": "#block-comments"
+                        }
+                    ]
+                },
+                {
+                    "comment": "block comments",
+                    "name": "comment.block.etas",
+                    "begin": "/\\*(?!\\*)",
+                    "end": "\\*/",
+                    "patterns": [
+                        {
+                            "include": "#block-comments"
+                        }
+                    ]
+                }
+            ]
+        },
+        "constants": {
+            "patterns": [
+                {
+                    "comment": "booleans",
+                    "name": "constant.language.bool.etas",
+                    "match": "\\b(true|false)\\b"
+                },
+                {
+                    "comment": "option variants",
+                    "name": "constant.language.option.etas",
+                    "match": "\\b(Some|None)\\b"
+                },
+                {
+                    "comment": "result variants",
+                    "name": "constant.language.result.etas",
+                    "match": "\\b(Ok|Err)\\b"
+                },
+                {
+                    "comment": "decimal integers and floats",
+                    "name": "constant.numeric.decimal.etas",
+                    "match": "\\b\\d[\\d_]*(\\.?)[\\d_]*(?:(E|e)([+-]?)([\\d_]+))\\b",
+                    "captures": {
+                        "1": {
+                            "name": "punctuation.separator.dot.decimal.etas"
+                        },
+                        "2": {
+                            "name": "keyword.operator.exponent.etas"
+                        },
+                        "3": {
+                            "name": "keyword.operator.exponent.sign.etas"
+                        },
+                        "4": {
+                            "name": "constant.numeric.decimal.exponent.mantissa.etas"
+                        }
+                    }
+                }
+            ]
+        },
+        "types": {
+            "patterns": [
+                {
+                    "comment": "type definitions",
+                    "match": "\\b(type)\\s+([A-Z][A-Za-z0-9_]*)",
+                    "captures": {
+                        "1": {
+                            "name": "keyword.declaration.type.etas"
+                        },
+                        "2": {
+                            "name": "entity.name.type.declaration.etas"
+                        }
+                    }
+                },
+                {
+                    "comment": "enum definitions",
+                    "match": "\\b(enum)\\s+([A-Z][A-Za-z0-9_]*)",
+                    "captures": {
+                        "1": {
+                            "name": "keyword.declaration.enum.etas"
+                        },
+                        "2": {
+                            "name": "entity.name.type.enum.etas"
+                        }
+                    }
+                }
+            ]
+        },
+        "keywords": {
+            "patterns": [
+                {
+                    "comment": "declaration keywords",
+                    "name": "keyword.declaration.etas",
+                    "match": "\\b(flow|tool|agent|impl|alias|spec|extends)\\b"
+                },
+                {
+                    "comment": "control flow keywords",
+                    "name": "keyword.control.etas",
+                    "match": "\\b(if|else|match|for|while|return|limit|in|retry|break|continue)\\b"
+                },
+                {
+                    "comment": "other keywords",
+                    "name": "keyword.other.etas",
+                    "match": "\\b(let|var|memory|effect|policy|protocol|action|require|as|allow|deny|before|after)\\b"
+                },
+                {
+                    "comment": "handler keywords",
+                    "name": "keyword.control.handler.etas",
+                    "match": "\\b(perform|handle|handler|with|resume|finish)\\b"
+                },
+                {
+                    "comment": "visibility modifiers",
+                    "name": "storage.modifier.etas",
+                    "match": "\\b(public|private)\\b"
+                },
+                {
+                    "comment": "fat arrow",
+                    "name": "keyword.operator.arrow.fat.etas",
+                    "match": "=>"
+                },
+                {
+                    "comment": "tilde arrow",
+                    "name": "keyword.operator.arrow.tilde.etas",
+                    "match": "~>"
+                },
+                {
+                    "comment": "pipe composition",
+                    "name": "keyword.operator.pipe.etas",
+                    "match": "\\|"
+                },
+                {
+                    "comment": "question mark operator",
+                    "name": "keyword.operator.question.etas",
+                    "match": "\\?"
+                },
+                {
+                    "comment": "dot access",
+                    "name": "keyword.operator.access.dot.etas",
+                    "match": "\\."
+                },
+                {
+                    "comment": "assignment",
+                    "name": "keyword.operator.assignment.etas",
+                    "match": "="
+                },
+                {
+                    "comment": "comparison operators",
+                    "name": "keyword.operator.comparison.etas",
+                    "match": "==|!=|<=|>=|<|>"
+                },
+                {
+                    "comment": "arithmetic operators",
+                    "name": "keyword.operator.math.etas",
+                    "match": "\\+|-(?!>)|\\*|/|%"
+                },
+                {
+                    "comment": "logical operators",
+                    "name": "keyword.operator.logical.etas",
+                    "match": "&&|\\|\\||!"
+                }
+            ]
+        },
+        "modules": {
+            "patterns": [
+                {
+                    "comment": "module declarations",
+                    "match": "\\b(module)\\s+([^;]*);",
+                    "captures": {
+                        "1": {
+                            "name": "keyword.declaration.module.etas"
+                        },
+                        "2": {
+                            "name": "entity.name.module.etas"
+                        }
+                    }
+                },
+                {
+                    "comment": "imports",
+                    "match": "\\b(import)\\s+([^;]*);",
+                    "captures": {
+                        "1": {
+                            "name": "keyword.control.import.etas"
+                        },
+                        "2": {
+                            "name": "entity.name.module.etas"
+                        }
+                    }
+                }
+            ]
+        },
+        "punctuation": {
+            "patterns": [
+                {
+                    "comment": "comma",
+                    "name": "punctuation.comma.etas",
+                    "match": ","
+                },
+                {
+                    "comment": "curly braces",
+                    "name": "punctuation.brackets.curly.etas",
+                    "match": "[{}]"
+                },
+                {
+                    "comment": "parentheses",
+                    "name": "punctuation.brackets.round.etas",
+                    "match": "[()]"
+                },
+                {
+                    "comment": "square brackets",
+                    "name": "punctuation.brackets.square.etas",
+                    "match": "[\\[\\]]"
+                },
+                {
+                    "comment": "angle brackets",
+                    "name": "punctuation.brackets.angle.etas",
+                    "match": "[<>]"
+                },
+                {
+                    "comment": "semicolon",
+                    "name": "punctuation.semi.etas",
+                    "match": ";"
+                },
+                {
+                    "comment": "colon",
+                    "name": "punctuation.colon.etas",
+                    "match": ":"
+                },
+                {
+                    "comment": "tilde",
+                    "name": "punctuation.tilde.etas",
+                    "match": "~"
+                }
+            ]
+        },
+        "strings": {
+            "patterns": [
+                {
+                    "comment": "double-quoted strings",
+                    "name": "string.quoted.double.etas",
+                    "begin": "\"",
+                    "beginCaptures": {
+                        "0": {
+                            "name": "punctuation.definition.string.etas"
+                        }
+                    },
+                    "end": "\"",
+                    "endCaptures": {
+                        "0": {
+                            "name": "punctuation.definition.string.etas"
+                        }
+                    },
+                    "patterns": [
+                        {
+                            "include": "#escapes"
+                        }
+                    ]
+                }
+            ]
+        },
+        "escapes": {
+            "comment": "escape sequences",
+            "name": "constant.character.escape.etas",
+            "match": "\\\\(?:[nrt0\"\\\\]|x[\\da-fA-F]{2}|u\\{[\\da-fA-F]{4,6}\\})"
+        },
+        "lvariables": {
+            "patterns": [
+                {
+                    "comment": "self variable",
+                    "name": "variable.language.self.etas",
+                    "match": "\\bself\\b"
+                }
+            ]
+        },
+        "variables": {
+            "patterns": [
+                {
+                    "comment": "variables and identifiers",
+                    "name": "variable.other.etas",
+                    "match": "\\b(?<!\\.)[a-z_][A-Za-z0-9_]*\\b"
+                }
+            ]
+        }
+    }
+}
