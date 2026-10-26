@@ -1,4 +1,5 @@
 mod completion;
+mod hover;
 pub mod service;
 mod syntax;
 pub mod types;

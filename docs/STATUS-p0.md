@@ -1,6 +1,6 @@
 # Etas IDE Status
 
-Version: 0.2.0
+Version: 0.3.0
 
 Updated: 2026-10-26
 
@@ -29,21 +29,31 @@ Updated: 2026-10-26
   completion do not rebuild an already-prepared package on every request.
 - Dedicated 8 MiB compiler analysis worker stack, stdio-safe logging, bundled
   native LSP binary, and VSIX packaging.
+- Checked hover signatures for flows/tools/agents, parameter names and types,
+  generic/spec bounds, nominal types, nested function values, public effect
+  contracts, and qualified requested-action scopes. Source imports use their
+  resolved declarations; std symbols include available registry descriptions.
+- Identifier/token-only UTF-16 hover ranges. Mismatched last-good source facts
+  are not attached to edited identifiers. Open requested-action rows are marked
+  unresolved rather than presented as empty/pure.
 
 ## Verification
 
-The 0.2.0 development verification includes:
+The 0.3.0 development verification includes:
 
-- `cargo test --workspace --offline`: 42 tests passed.
+- `cargo test --workspace --locked --offline`: 51 tests passed.
+- Strict workspace Clippy and formatting checks.
 - Extension TypeScript compile and esbuild bundle.
 - TextMate tests with VS Code's tokenizer and Oniguruma; the keyword list is
   read from the exact Cargo-resolved compiler revision, not a copied list.
 - Real stdio LSP tests for initialization, Outline, lexical and semantic
   ranges, parse errors, versioned diagnostics, UTF-16 incremental edits,
-  recovery, and package preparation failure/reload.
+  recovery, package preparation failure/reload, checked hover content/imports,
+  scoped actions, and stale-source hover rejection. All 52 real-project files
+  also passed checked hover assertions with zero error diagnostics.
 - Real VS Code extension-host tests against `~/Projects/nomo`: 52 source
-  files with Outline and semantic providers, plus unsaved parse-error/recovery
-  and Unicode-position tests in a temporary document.
+  files with Outline, semantic providers, and 52 readable flow hovers, plus unsaved
+  parse-error/recovery and Unicode hover-range tests in a temporary document.
 - TextMate verification over the same 52 files: 4,565 keyword occurrences.
 
 The project tests read source files but do not run model, network, tool, or
@@ -81,8 +91,9 @@ implemented. The current service switches its active semantic project when a
 document in another package is activated. It does not claim simultaneous
 multi-root semantic sessions.
 
-Hover/definition may retain last-good semantic facts during invalid edits;
-Outline and tokens use the current buffer. A broader current-source semantic
+Definition may retain last-good semantic facts during invalid edits; hover
+rejects mismatched source text, while Outline and tokens use the current buffer.
+A broader current-source semantic
 recovery model belongs in the frontend API, not a second IDE type checker.
 
 The bundled server is native. Build/install a VSIX for the target operating

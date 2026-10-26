@@ -2,8 +2,8 @@ use tower_lsp::lsp_types;
 
 use etas_core::{LineIndex, TextRange, TextSize};
 use etas_intel::{
-    CompletionItem, CompletionKind, IntelDiagnostic, IntelLocation, IntelSemanticToken,
-    IntelSeverity,
+    CompletionItem, CompletionKind, HoverResult, IntelDiagnostic, IntelLocation,
+    IntelSemanticToken, IntelSeverity,
 };
 
 pub fn intel_diagnostic_to_lsp(diag: &IntelDiagnostic, source_text: &str) -> lsp_types::Diagnostic {
@@ -106,6 +106,20 @@ pub fn intel_location_to_lsp(loc: &IntelLocation) -> lsp_types::Location {
         .unwrap_or_else(|_| lsp_types::Url::parse("file:///unknown.es").unwrap());
     let range = text_range_to_lsp_range(&loc.range, &loc.source_text);
     lsp_types::Location { uri, range }
+}
+
+pub fn intel_hover_to_lsp(hover: HoverResult) -> lsp_types::Hover {
+    let range = TextRange::new(
+        TextSize(hover.byte_start as u32),
+        TextSize(hover.byte_end as u32),
+    );
+    lsp_types::Hover {
+        range: Some(text_range_to_lsp_range(&range, &hover.source_text)),
+        contents: lsp_types::HoverContents::Markup(lsp_types::MarkupContent {
+            kind: lsp_types::MarkupKind::Markdown,
+            value: hover.text,
+        }),
+    }
 }
 
 pub fn intel_completion_to_lsp(item: CompletionItem) -> lsp_types::CompletionItem {
@@ -276,5 +290,27 @@ mod tests {
         for (intel, lsp) in cases {
             assert_eq!(completion_kind_to_lsp(intel), lsp);
         }
+    }
+    #[test]
+    fn hover_conversion_preserves_markdown_and_utf16_identifier_range() {
+        let text = "let text = \"😀\"; let answer = 1;";
+        let start = text.find("answer").unwrap();
+        let hover = intel_hover_to_lsp(HoverResult {
+            text: "```etas\nlet answer: i32\n```".to_owned(),
+            byte_start: start,
+            byte_end: start + 6,
+            source_text: text.to_owned(),
+        });
+        assert_eq!(
+            hover.range.unwrap(),
+            lsp_types::Range::new(
+                lsp_types::Position::new(0, text[..start].encode_utf16().count() as u32),
+                lsp_types::Position::new(0, text[..start].encode_utf16().count() as u32 + 6),
+            )
+        );
+        assert!(
+            matches!(hover.contents, lsp_types::HoverContents::Markup(content)
+            if content.kind == lsp_types::MarkupKind::Markdown && content.value.contains("let answer: i32"))
+        );
     }
 }

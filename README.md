@@ -12,7 +12,7 @@ effect checker.
 |---|---|
 | `.es` syntax highlighting | Available |
 | Incremental syntax/name/type/effect diagnostics | Available |
-| Hover | Available |
+| Hover | Checked signatures, readable types, generic/spec bounds, and effect/action summaries |
 | Go to definition, including import targets | Available |
 | Contextual completion | Available |
 | Semantic tokens | Available |
@@ -72,6 +72,12 @@ but retains the most recent valid semantic snapshot for queries where that is
 safe. Semantic answers can therefore refer to last-good state until the source
 becomes valid again; clients must not mistake that state for a successful
 current compilation.
+
+Hover uses checked signatures and symbol/type/effect facts, never internal Debug
+dumps. Nominal types retain their identities, generic arguments use `<...>`, and
+requested actions are separate from the public effect contract. Hover is
+suppressed when the checked source differs from the current buffer; its range
+covers only the hovered token, converted to UTF-16 by the protocol adapter.
 
 Outline and lexical tokens always use the current buffer through the compiler's
 public parse/token API. Semantic classifications are applied only when the

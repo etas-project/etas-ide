@@ -94,6 +94,48 @@ test('package preparation failures are published and recover after manifest chan
     assert.ok(!recovered.some(diag => diag.code === 'package::PrepareFailed'), JSON.stringify(recovered));
 });
 
+test('hover: readable checked signatures, types, effects, imports, and UTF-16 ranges', { timeout: 120000 }, async t => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'etas-hover-e2e-'));
+    const src = path.join(root, 'src');
+    fs.mkdirSync(src);
+    const client = new LspClient();
+    t.after(async () => { await client.stop(); fs.rmSync(root, { recursive: true, force: true }); });
+    const helper = 'module helper;\npublic flow square(x: i32) -> i32 ![] { return x * x; }\n';
+    fs.writeFileSync(path.join(src, 'helper.es'), helper);
+    const text = 'module main;\nimport helper.*;\nimport std.text.{trim};\nspec Region;\ntype Root;\nimpl Root ~ Region;\neffect Store extends FileIO { action read<R ~ Region>(key: string) -> string; }\nflow fetch<R ~ Region>(key: string) -> string ![Store.read<R>] { return perform Store.read<R>(key); }\nflow main() -> i32 { let text = "中文😀"; let label = trim(text); let answer = square(4); return answer; }\n';
+    const uri = pathToFileURL(path.join(src, 'main.es')).href;
+    fs.writeFileSync(path.join(src, 'main.es'), text);
+    await client.initialize(pathToFileURL(root).href);
+    client.notify('textDocument/didOpen', { textDocument: { uri, languageId: 'etas', version: 1, text } });
+    assert.deepEqual((await client.diagnostics(uri, 1)).filter(diag => diag.severity === 1), []);
+    async function hover(needle, expected) {
+        const offset = text.indexOf(needle);
+        assert.ok(offset >= 0);
+        const lines = text.slice(0, offset).split('\n');
+        const position = { line: lines.length - 1, character: lines.at(-1).length };
+        const result = await client.request('textDocument/hover', { textDocument: { uri }, position });
+        assert.equal(result.contents.kind, 'markdown');
+        assert.ok(result.contents.value.includes(expected), result.contents.value);
+        assert.doesNotMatch(result.contents.value, /TypeId\(|SymbolId\(|FlowType|Function\(/);
+        assert.deepEqual(result.range.start, position);
+        return result;
+    }
+    const square = await hover('square(4)', 'flow square(x: i32) -> i32 ![]');
+    assert.equal(square.range.end.character - square.range.start.character, 'square'.length);
+    await hover('answer;', 'let answer: i32');
+    await hover('trim(text)', 'flow trim(string) -> string');
+    const fetch = await hover('fetch<R', 'flow fetch<R ~ Region>(key: string) -> string ![Store.read<R>]');
+    assert.ok(fetch.contents.value.includes('Requested actions:'), fetch.contents.value);
+    assert.equal(fetch.contents.value.match(/Store\.read<R>/g).length, 2);
+    const broken = text.replace('return answer;', 'return missing;');
+    client.notify('textDocument/didChange', { textDocument: { uri, version: 2 }, contentChanges: [{ text: broken }] });
+    assert.ok((await client.diagnostics(uri, 2)).some(diag => diag.severity === 1));
+    const lines = broken.slice(0, broken.indexOf('missing;')).split('\n');
+    assert.equal(await client.request('textDocument/hover', { textDocument: { uri }, position: {
+        line: lines.length - 1, character: lines.at(-1).length,
+    } }), null, 'invalid current identifiers must not receive last-good hover');
+});
+
 const project = process.env.ETAS_E2E_PROJECT;
 test('stdio: real project parser results, diagnostics, and highlighting', { skip: !project, timeout: 240000 }, async t => {
     const client = new LspClient();
@@ -101,6 +143,7 @@ test('stdio: real project parser results, diagnostics, and highlighting', { skip
     const initialized = await client.initialize(pathToFileURL(project).href);
     let count = 0;
     let diagnostics = 0;
+    let hovers = 0;
     for (const name of fs.readdirSync(path.join(project, 'src'), { recursive: true })) {
         if (!name.endsWith('.es')) continue;
         const file = path.join(project, 'src', name);
@@ -117,9 +160,20 @@ test('stdio: real project parser results, diagnostics, and highlighting', { skip
             assert.ok(diagnostic.range.start.line < text.split('\n').length, name);
             if (diagnostic.severity === 1) diagnostics++;
         }
+        const flow = /\bflow\s+([A-Za-z_]\w*)/.exec(text);
+        if (flow) {
+            const offset = flow.index + flow[0].lastIndexOf(flow[1]);
+            const lines = text.slice(0, offset).split('\n');
+            const hover = await client.request('textDocument/hover', { textDocument: { uri }, position: {
+                line: lines.length - 1, character: lines.at(-1).length,
+            } });
+            assert.ok(hover?.contents.value.includes('flow ' + flow[1]), name + ': missing checked flow signature');
+            assert.doesNotMatch(hover.contents.value, /TypeId\(|SymbolId\(|FlowType|Function\(/, name);
+            hovers++;
+        }
         count++;
     }
     assert.ok(count > 0);
-    console.log('LSP: ' + count + ' real project files verified; error diagnostic count: ' + diagnostics);
+    console.log('LSP: ' + count + ' real project files, ' + hovers + ' checked hovers; error diagnostic count: ' + diagnostics);
     assert.equal(diagnostics, 0, 'real project should have no compiler errors');
 });

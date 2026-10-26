@@ -105,6 +105,229 @@ fn open_file(tx: &tokio::sync::mpsc::UnboundedSender<Command>, uri: &str, text: 
     std::thread::sleep(std::time::Duration::from_millis(50));
 }
 
+fn hover_at(
+    tx: &tokio::sync::mpsc::UnboundedSender<Command>,
+    uri: &str,
+    source: &str,
+    needle: &str,
+) -> Option<HoverResult> {
+    let offset = source.find(needle).expect("hover marker must exist");
+    let before = &source[..offset];
+    let line = before.bytes().filter(|byte| *byte == b'\n').count() as u32;
+    let character = before.rsplit('\n').next().unwrap().encode_utf16().count() as u32;
+    let (respond, rx) = tokio::sync::oneshot::channel();
+    tx.send(Command::Hover {
+        uri: uri.to_owned(),
+        position: LspPosition { line, character },
+        respond,
+    })
+    .unwrap();
+    rx.blocking_recv().unwrap()
+}
+
+fn assert_hover(result: Option<HoverResult>, expected: &str) -> HoverResult {
+    let result = result.expect("expected checked hover");
+    assert!(
+        result.text.contains(expected),
+        "expected {expected:?}, got {}",
+        result.text
+    );
+    for internal in [
+        "TypeId(",
+        "SymbolId(",
+        "FlowType",
+        "Function(",
+        "Primitive(",
+    ] {
+        assert!(
+            !result.text.contains(internal),
+            "hover leaked {internal}: {}",
+            result.text
+        );
+    }
+    result
+}
+
+fn assert_checked(tx: &tokio::sync::mpsc::UnboundedSender<Command>, uri: &str, source: &str) {
+    let diagnostics = open_and_check(tx, uri, source);
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+}
+
+#[test]
+fn test_hover_callable_declarations_calls_parameters_and_locals() {
+    let tx = spawn_service();
+    let uri = "file:///hover_signature.es";
+    let source = "module hover;\nflow square(x: i32) -> i32 { return x * x; }\nflow main() -> i32 { let answer = square(4); return answer; }\n";
+    assert_checked(&tx, uri, source);
+    for needle in ["square(x", "square(4"] {
+        let result = assert_hover(
+            hover_at(&tx, uri, source, needle),
+            "flow square(x: i32) -> i32",
+        );
+        assert_eq!(&source[result.byte_start..result.byte_end], "square");
+    }
+    assert_hover(hover_at(&tx, uri, source, "x: i32"), "x: i32");
+    assert_hover(hover_at(&tx, uri, source, "x * x"), "x: i32");
+    assert_hover(hover_at(&tx, uri, source, "answer ="), "let answer: i32");
+    assert_hover(hover_at(&tx, uri, source, "answer;"), "let answer: i32");
+    assert!(hover_at(&tx, uri, source, "return x").is_none());
+}
+
+#[test]
+fn test_hover_generic_spec_bounds_and_nominal_identity() {
+    let tx = spawn_service();
+    let uri = "file:///hover_generics.es";
+    let source = "module hover;\nspec Region;\ntype Root;\nimpl Root ~ Region;\ntype Path<R ~ Region> = string;\nflow identity<R ~ Region>(path: Path<R>) -> Path<R> ![] { return path; }\nflow main() -> i32 { return 0; }\n";
+    assert_checked(&tx, uri, source);
+    assert_hover(
+        hover_at(&tx, uri, source, "identity<R"),
+        "flow identity<R ~ Region>(path: hover.Path<R>) -> hover.Path<R> ![]",
+    );
+    assert_hover(hover_at(&tx, uri, source, "path;"), "path: hover.Path<R>");
+}
+
+#[test]
+fn test_hover_alias_nominal_fields_and_nested_types() {
+    let tx = spawn_service();
+    let uri = "file:///hover_types.es";
+    let source = "module hover;\nalias Label = string;\ntype UserId = string;\nalias User = { id: UserId, name: Label };\nflow label(user: User, values: Array<Option<i32>>) -> string ![] { return user.name; }\nflow main() -> i32 { return 0; }\n";
+    assert_checked(&tx, uri, source);
+    assert_hover(
+        hover_at(&tx, uri, source, "Label ="),
+        "alias Label = string",
+    );
+    assert_hover(
+        hover_at(&tx, uri, source, "UserId ="),
+        "type UserId = string",
+    );
+    assert_hover(
+        hover_at(&tx, uri, source, "values:"),
+        "values: Array<Option<i32>>",
+    );
+    assert_hover(hover_at(&tx, uri, source, "name;"), "name: string");
+    assert_hover(hover_at(&tx, uri, source, "id: UserId"), "id: hover.UserId");
+}
+
+#[test]
+fn test_hover_effect_contract_and_requested_actions() {
+    let tx = spawn_service();
+    let uri = "file:///hover_effects.es";
+    let source = "module hover;\nspec Region;\ntype Root;\nimpl Root ~ Region;\neffect Store extends FileIO { action read<R ~ Region>(key: string) -> string; }\nflow fetch<R ~ Region>(key: string) -> string ![Store.read<R>] { return perform Store.read<R>(key); }\nflow main() -> i32 { return 0; }\n";
+    assert_checked(&tx, uri, source);
+    let result = assert_hover(
+        hover_at(&tx, uri, source, "fetch<R"),
+        "flow fetch<R ~ Region>(key: string) -> string ![Store.read<R>]",
+    );
+    assert!(
+        result.text.contains("Requested actions:"),
+        "{}",
+        result.text
+    );
+    assert!(
+        result.text.matches("Store.read<R>").count() >= 2,
+        "{}",
+        result.text
+    );
+}
+
+#[test]
+fn test_hover_tool_agent_and_function_value() {
+    let tx = spawn_service();
+    let uri = "file:///hover_callables.es";
+    let source = "module hover;\ntool echo(value: string) -> string ![] { return value; }\nagent Greeter(input: string) -> string {}\nflow square(x: i32) -> i32 ![] { return x * x; }\nflow main() -> i32 { let callback = square; return callback(2); }\n";
+    assert_checked(&tx, uri, source);
+    assert_hover(
+        hover_at(&tx, uri, source, "echo(value"),
+        "tool echo(value: string) -> string ![]",
+    );
+    assert_hover(
+        hover_at(&tx, uri, source, "Greeter(input"),
+        "agent Greeter(input: string) -> string",
+    );
+    assert_hover(
+        hover_at(&tx, uri, source, "callback(2"),
+        "let callback: (i32) -> i32 ![]",
+    );
+}
+
+#[test]
+fn test_hover_preserves_higher_order_latent_effects() {
+    let tx = spawn_service();
+    let uri = "file:///hover_latent_effects.es";
+    let source = "module hover;\nflow twice<effect E>(callback: () -> unit ![E]) -> unit ![E] { callback(); callback(); }\nflow main() -> i32 { return 0; }\n";
+    assert_checked(&tx, uri, source);
+    assert_hover(
+        hover_at(&tx, uri, source, "twice<effect"),
+        "flow twice<effect E>(callback: () -> unit ![E]) -> unit ![E]",
+    );
+}
+
+#[test]
+fn test_hover_uses_utf16_positions_and_refuses_stale_snapshot() {
+    let mut service = LanguageService::new();
+    let uri = "file:///hover_stale.es";
+    let source =
+        "module hover;\nflow main() -> i32 { let text = \"😀\"; let result = 1; return result; }\n";
+    service.open_document(uri.to_owned(), source.to_owned(), 1);
+    service.ensure_fresh_analysis();
+    let offset = source.rfind("result;").unwrap();
+    let position = LspPosition {
+        line: 1,
+        character: source.split('\n').nth(1).unwrap()[..offset - source.find('\n').unwrap() - 1]
+            .encode_utf16()
+            .count() as u32,
+    };
+    let result = assert_hover(service.hover(uri, position), "let result: i32");
+    assert_eq!(&source[result.byte_start..result.byte_end], "result");
+    service.change_document(
+        uri.to_owned(),
+        vec![LspTextEdit {
+            range: None,
+            text: source.replace("result;", "missing;"),
+        }],
+        2,
+    );
+    service.ensure_fresh_analysis();
+    assert!(
+        service.hover(uri, position).is_none(),
+        "old facts must not describe the new identifier"
+    );
+}
+
+#[test]
+fn test_hover_resolves_import_alias_and_wildcard_calls() {
+    let tx = spawn_service();
+    let root = std::env::temp_dir().join(format!("etas_hover_imports_{}", std::process::id()));
+    let src = root.join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(
+        src.join("math.es"),
+        "module math;\npublic flow square(x: i32) -> i32 ![] { return x * x; }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        src.join("utils.es"),
+        "module utils;\npublic flow add(a: i32, b: i32) -> i32 ![] { return a + b; }\n",
+    )
+    .unwrap();
+    let source = "module main;\nimport math.square as squared;\nimport utils.*;\nflow main() -> i32 { return add(squared(2), 3); }\n";
+    let file = src.join("main.es");
+    std::fs::write(&file, source).unwrap();
+    let uri = path_to_uri(&file);
+    tx.send(Command::SetWorkspaceRoot(root.clone())).unwrap();
+    assert_checked(&tx, &uri, source);
+    assert_hover(
+        hover_at(&tx, &uri, source, "squared(2"),
+        "flow square(x: i32) -> i32 ![]",
+    );
+    assert_hover(
+        hover_at(&tx, &uri, source, "add(squared"),
+        "flow add(a: i32, b: i32) -> i32 ![]",
+    );
+    drop(tx);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn test_offset_of_position_clamps_to_current_line() {
     let text = "abc\ndef\n";

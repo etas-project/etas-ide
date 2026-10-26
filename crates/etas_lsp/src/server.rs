@@ -212,16 +212,7 @@ impl LanguageServer for Backend {
         });
 
         let result = rx.await.unwrap_or(None);
-        match result {
-            Some(h) => Ok(Some(Hover {
-                contents: HoverContents::Markup(MarkupContent {
-                    kind: MarkupKind::Markdown,
-                    value: h.text,
-                }),
-                range: None,
-            })),
-            None => Ok(None),
-        }
+        Ok(result.map(conversions::intel_hover_to_lsp))
     }
 
     async fn completion(&self, params: CompletionParams) -> LspResult<Option<CompletionResponse>> {

@@ -129,6 +129,7 @@ pub struct HoverResult {
     pub text: String,
     pub byte_start: usize,
     pub byte_end: usize,
+    pub source_text: String,
 }
 
 pub struct IntelSemanticToken {
@@ -1103,49 +1104,9 @@ impl LanguageService {
     }
 
     fn hover(&self, uri: &str, position: LspPosition) -> Option<HoverResult> {
-        let source_id = self.url_to_source_id.get(uri)?;
         let snapshot = self.snapshot.as_ref()?;
         let doc = self.documents.get(uri)?;
-
-        let target_offset = TextSize(offset_of_position(&doc.text, position) as u32);
-        let node = self.find_node_at(*source_id, target_offset, snapshot)?;
-        let hir_nodes = snapshot.hir_nodes_for_syntax(node.id);
-        let mut result = String::new();
-
-        for hir_ref in hir_nodes {
-            match *hir_ref {
-                HirNodeRef::Expr(expr_id) => {
-                    if let Some(type_id) = snapshot.types.expr_types.get(&expr_id) {
-                        if let Some(ty) = snapshot.type_store.get(*type_id) {
-                            if !result.is_empty() {
-                                result.push('\n');
-                            }
-                            result.push_str(&format!("```etas\n{}\n```", ty_display(ty)));
-                        }
-                    }
-                }
-                HirNodeRef::Symbol(symbol_id) => {
-                    if let Some(symbol) = snapshot.symbols.get(symbol_id) {
-                        if !result.is_empty() {
-                            result.push('\n');
-                        }
-                        result
-                            .push_str(&format!("```etas\n{} {:?}\n```", symbol.name, symbol.kind));
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        if result.is_empty() {
-            return None;
-        }
-
-        Some(HoverResult {
-            text: result,
-            byte_start: node.span.range.start.0 as usize,
-            byte_end: node.span.range.end.0 as usize,
-        })
+        crate::hover::hover(snapshot, doc, offset_of_position(&doc.text, position))
     }
 
     fn go_to_definition(&self, uri: &str, position: LspPosition) -> Vec<IntelLocation> {
@@ -1922,13 +1883,6 @@ fn collect_es_files(dir: &std::path::Path, paths: &mut Vec<PathBuf>) {
         } else if path.extension().and_then(|x| x.to_str()) == Some("es") {
             paths.push(path);
         }
-    }
-}
-
-fn ty_display(ty: &etas_types::Type) -> String {
-    match ty {
-        etas_types::Type::Primitive(p) => format!("{:?}", p),
-        _ => format!("{:?}", ty),
     }
 }
 

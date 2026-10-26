@@ -24,6 +24,7 @@ async function run() {
     const project = process.env.ETAS_E2E_PROJECT;
     assert.ok(project, 'ETAS_E2E_PROJECT must select a real project');
     let checked = 0;
+    let hoversChecked = 0;
     for (const name of fs.readdirSync(path.join(project, 'src'), { recursive: true })) {
         if (!name.endsWith('.es')) continue;
         const uri = vscode.Uri.file(path.join(project, 'src', name));
@@ -39,13 +40,25 @@ async function run() {
             result => result && result.data.length > 0, 'tokens: ' + name);
         assert.ok(legend.tokenTypes.includes('keyword'));
         assert.equal(tokens.data.length % 5, 0);
+        const flow = /\bflow\s+([A-Za-z_]\w*)/.exec(doc.getText());
+        if (flow) {
+            const position = doc.positionAt(flow.index + flow[0].lastIndexOf(flow[1]));
+            const hovers = await eventually(
+                () => vscode.commands.executeCommand('vscode.executeHoverProvider', uri, position),
+                result => Array.isArray(result) && result.some(hover => hover.contents.some(content =>
+                    content.value?.includes('flow ' + flow[1]))), 'hover: ' + name);
+            for (const hover of hovers) {
+                for (const content of hover.contents) assert.doesNotMatch(content.value, /TypeId\(|SymbolId\(|FlowType|Function\(/, name);
+            }
+            hoversChecked++;
+        }
         checked++;
     }
     assert.ok(checked > 0);
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'etas-vscode-e2e-'));
     try {
         const uri = vscode.Uri.file(path.join(root, 'unicode.es'));
-        const valid = 'module unicode;\nflow main() -> i32 { let text = "中文😀"; return 0; }\n';
+        const valid = 'module unicode;\nflow square(x: i32) -> i32 ![] { return x * x; }\nflow main() -> i32 { let text = "中文😀"; let answer = square(4); return 0; }\n';
         fs.writeFileSync(uri.fsPath, valid);
         const doc = await vscode.workspace.openTextDocument(uri);
         await vscode.window.showTextDocument(doc);
@@ -75,11 +88,18 @@ async function run() {
             }
         }
         assert.ok(sawReturn, 'UTF-16 return token must reach the VS Code provider');
+        const hovers = await eventually(
+            () => vscode.commands.executeCommand('vscode.executeHoverProvider', uri, doc.positionAt(valid.indexOf('square(4)'))),
+            result => Array.isArray(result) && result.some(hover => hover.contents.some(content =>
+                typeof content.value === 'string' && content.value.includes('flow square(x: i32) -> i32 ![]'))), 'readable hover');
+        const hover = hovers.find(hover => hover.contents.some(content => content.value?.includes('flow square')));
+        assert.equal(doc.getText(hover.range), 'square');
+        for (const content of hover.contents) assert.doesNotMatch(content.value, /TypeId\(|SymbolId\(|FlowType|Function\(/);
         await vscode.commands.executeCommand('workbench.action.revertAndCloseActiveEditor');
     } finally {
         fs.rmSync(root, { recursive: true, force: true });
     }
-    console.log('VS Code E2E passed: ' + checked + ' nomo files, outline, semantic providers, parse errors and recovery');
+    console.log('VS Code E2E passed: ' + checked + ' nomo files, ' + hoversChecked + ' checked hovers, outline, semantic providers, parse errors and recovery');
 }
 
 exports.run = async function () {
