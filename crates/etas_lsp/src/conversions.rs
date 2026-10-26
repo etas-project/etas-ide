@@ -46,10 +46,45 @@ fn text_range_to_lsp_range(range: &TextRange, source_text: &str) -> lsp_types::R
     }
 }
 
+pub fn intel_symbol_to_lsp(
+    symbol: &etas_intel::DocumentSymbol,
+    text: &str,
+) -> lsp_types::DocumentSymbol {
+    use etas_intel::DocumentSymbolKind as K;
+    #[allow(deprecated)]
+    lsp_types::DocumentSymbol {
+        name: symbol.name.clone(),
+        detail: None,
+        kind: match symbol.kind {
+            K::Module => lsp_types::SymbolKind::MODULE,
+            K::Function => lsp_types::SymbolKind::FUNCTION,
+            K::Type => lsp_types::SymbolKind::STRUCT,
+            K::Enum => lsp_types::SymbolKind::ENUM,
+            K::EnumMember => lsp_types::SymbolKind::ENUM_MEMBER,
+            K::Interface => lsp_types::SymbolKind::INTERFACE,
+            K::Variable => lsp_types::SymbolKind::VARIABLE,
+        },
+        tags: None,
+        deprecated: None,
+        range: text_range_to_lsp_range(&symbol.range, text),
+        selection_range: text_range_to_lsp_range(&symbol.selection_range, text),
+        children: Some(
+            symbol
+                .children
+                .iter()
+                .map(|child| intel_symbol_to_lsp(child, text))
+                .collect(),
+        ),
+    }
+}
+
 fn byte_col_to_utf16_col(text: &str, line: u32, byte_col: u32) -> u32 {
     let line_start = find_line_start(text, line);
     let line_text = &text[line_start..];
-    let end = (byte_col as usize).min(line_text.len());
+    let mut end = (byte_col as usize).min(line_text.find('\n').unwrap_or(line_text.len()));
+    while !line_text.is_char_boundary(end) {
+        end -= 1;
+    }
     line_text[..end].chars().map(|c| c.len_utf16() as u32).sum()
 }
 
@@ -110,43 +145,106 @@ pub fn intel_tokens_to_lsp(
     let mut result = Vec::new();
     let mut prev_line: u32 = 0;
     let mut prev_col: u32 = 0;
-    for t in tokens {
-        let pos = line_index.line_col(TextSize(t.byte_start));
-        let delta_line = pos.line.wrapping_sub(prev_line);
-        let delta_start = if delta_line == 0 {
-            pos.col.wrapping_sub(prev_col)
-        } else {
-            pos.col
-        };
-        let length = byte_range_utf16_len(source_text, t.byte_start as usize, t.byte_end as usize);
-        if length == 0 {
+    let mut sorted: Vec<_> = tokens.iter().collect();
+    sorted.sort_by_key(|token| (token.byte_start, token.byte_end));
+    let mut previous_end = 0;
+    for t in sorted {
+        let start = t.byte_start as usize;
+        let end = t.byte_end as usize;
+        if start < previous_end
+            || start >= end
+            || end > source_text.len()
+            || !source_text.is_char_boundary(start)
+            || !source_text.is_char_boundary(end)
+        {
             continue;
         }
-        result.push(SemanticToken {
-            delta_line,
-            delta_start,
-            length,
-            token_type: t.token_type,
-            token_modifiers_bitset: t.modifier_bits,
-        });
-        prev_line = pos.line;
-        prev_col = pos.col;
+        previous_end = end;
+        let mut offset = start;
+        for part in source_text[start..end].split_inclusive('\n') {
+            let content = part.trim_end_matches(['\r', '\n']);
+            if !content.is_empty() {
+                let pos = line_index.line_col(TextSize(offset as u32));
+                let col = byte_col_to_utf16_col(source_text, pos.line, pos.col);
+                let delta_line = pos.line - prev_line;
+                result.push(SemanticToken {
+                    delta_line,
+                    delta_start: if delta_line == 0 { col - prev_col } else { col },
+                    length: content.encode_utf16().count() as u32,
+                    token_type: t.token_type,
+                    token_modifiers_bitset: t.modifier_bits,
+                });
+                prev_line = pos.line;
+                prev_col = col;
+            }
+            offset += part.len();
+        }
     }
     result
-}
-
-fn byte_range_utf16_len(text: &str, start: usize, end: usize) -> u32 {
-    let start = start.min(text.len());
-    let end = end.min(text.len());
-    if start >= end {
-        return 0;
-    }
-    text[start..end].chars().map(|c| c.len_utf16() as u32).sum()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn semantic_tokens_use_utf16_columns_and_split_multiline_tokens() {
+        let text = "\"中文😀\" return\r\n/* one\r\n中文 */ let";
+        let token = |start, end, ty| IntelSemanticToken {
+            byte_start: start,
+            byte_end: end,
+            token_type: ty,
+            modifier_bits: 0,
+        };
+        let ret = text.find("return").unwrap() as u32;
+        let comment = text.find("/*").unwrap() as u32;
+        let comment_end = text.find("*/").unwrap() as u32 + 2;
+        let let_start = text.find("let").unwrap() as u32;
+        let tokens = intel_tokens_to_lsp(
+            &[
+                token(0, ret - 1, 10),
+                token(ret, ret + 6, 9),
+                token(comment, comment_end, 11),
+                token(let_start, let_start + 3, 9),
+            ],
+            text,
+        );
+        let positions: Vec<_> = tokens
+            .iter()
+            .map(|token| (token.delta_line, token.delta_start, token.length))
+            .collect();
+        assert_eq!(
+            positions,
+            [(0, 0, 6), (0, 7, 6), (1, 0, 6), (1, 0, 5), (0, 6, 3)]
+        );
+    }
+
+    #[test]
+    fn token_conversion_rejects_invalid_boundaries_and_overlap() {
+        let tokens = [
+            IntelSemanticToken {
+                byte_start: 1,
+                byte_end: 2,
+                token_type: 0,
+                modifier_bits: 0,
+            },
+            IntelSemanticToken {
+                byte_start: 0,
+                byte_end: 3,
+                token_type: 1,
+                modifier_bits: 0,
+            },
+            IntelSemanticToken {
+                byte_start: 0,
+                byte_end: 999,
+                token_type: 1,
+                modifier_bits: 0,
+            },
+        ];
+        let converted = intel_tokens_to_lsp(&tokens, "中");
+        assert_eq!(converted.len(), 1);
+        assert_eq!(converted[0].length, 1);
+    }
 
     #[test]
     fn maps_completion_kinds_to_lsp_kinds() {

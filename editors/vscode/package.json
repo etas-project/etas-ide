@@ -3,7 +3,7 @@
   "displayName": "Etas",
   "icon": "images/etas_icon-small-mod.png",
   "description": "Etas language support for Visual Studio Code",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "etas-project",
   "license": "MIT OR Apache-2.0",
   "repository": {
@@ -79,19 +79,23 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run build",
+    "vscode:prepublish": "npm run compile && npm test && npm run build",
     "build": "esbuild ./src/extension.ts --bundle --external:vscode --format=cjs --platform=node --outfile=./dist/extension.js",
-    "build-server": "cargo build -p etas_lsp --release --manifest-path ../../Cargo.toml && mkdir -p ./server && cp ../../target/release/etas-lsp ./server/etas-lsp && strip ./server/etas-lsp",
+    "build-server": "cargo build -p etas_lsp --locked --release --manifest-path ../../Cargo.toml && mkdir -p ./server && cp ../../target/release/etas-lsp ./server/etas-lsp && strip ./server/etas-lsp",
     "package:vsix": "npm run build-server && vsce package",
     "compile": "tsc -p ./ --noEmit",
+    "test": "node --test test/grammar.test.cjs",
+    "test:lsp": "node --test test/lsp.test.cjs",
     "watch": "tsc -watch -p ./ --noEmit"
   },
   "devDependencies": {
-    "@vscode/vsce": "3.9.2",
     "@types/node": "^25.9.3",
     "@types/vscode": "^1.100.0",
+    "@vscode/vsce": "3.9.2",
     "esbuild": "^0.28.0",
-    "typescript": "^5.5.0"
+    "typescript": "^5.5.0",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.3.2"
   },
   "dependencies": {
     "vscode-languageclient": "^8.1.0"

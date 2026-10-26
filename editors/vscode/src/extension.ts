@@ -3,9 +3,7 @@ import * as path from 'path';
 import { ExtensionContext, workspace, window, commands } from 'vscode';
 import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind } from 'vscode-languageclient/lib/node/main';
 
-console.log('etas extension module loaded');
-
-let client: LanguageClient;
+let client: LanguageClient | undefined;
 
 function resolveServerPath(context: ExtensionContext, configPath: string): string {
     // 1. Explicit user config
@@ -23,8 +21,9 @@ function resolveServerPath(context: ExtensionContext, configPath: string): strin
     return 'etas-lsp';
 }
 
-export function activate(context: ExtensionContext) {
-    console.log('etas extension activate() called');
+export async function activate(context: ExtensionContext): Promise<void> {
+    const output = window.createOutputChannel('Etas Language Server');
+    context.subscriptions.push(output);
     try {
         const config = workspace.getConfiguration('etas.lsp');
         const configPath: string = config.get('path', 'etas-lsp');
@@ -38,9 +37,13 @@ export function activate(context: ExtensionContext) {
         };
 
         const clientOptions: LanguageClientOptions = {
-            documentSelector: [{ scheme: 'file', language: 'etas' }],
+            documentSelector: [{ scheme: 'file', language: 'etas' }, { scheme: 'untitled', language: 'etas' }],
+            outputChannel: output,
             synchronize: {
-                fileEvents: workspace.createFileSystemWatcher('**/*.es'),
+                fileEvents: [
+                    workspace.createFileSystemWatcher('**/*.es'),
+                    workspace.createFileSystemWatcher('**/{etas.toml,etas.lock,.etas/package-index.json}'),
+                ],
             },
         };
 
@@ -51,26 +54,19 @@ export function activate(context: ExtensionContext) {
             clientOptions,
         );
 
-        context.subscriptions.push({
-            dispose: () => { client.stop(); },
-        });
-
-        client.start().then(() => {
-            console.log('etas: language server started');
-        }).catch((err: Error) => {
-            console.error('etas: failed to start language server:', err.message);
-        });
-
         context.subscriptions.push(
             commands.registerCommand('etas.restartServer', async () => {
-                await client.restart();
+                await client?.restart();
                 window.showInformationMessage('Etas language server restarted');
             }),
         );
 
-        console.log('etas: extension activated successfully');
+        await client.start();
+        output.appendLine(`Etas language server started: ${serverPath}`);
     } catch (err) {
-        console.error('etas: activation error:', err);
+        output.appendLine(`Etas language server failed: ${String(err)}`);
+        void window.showErrorMessage(`Etas language server failed to start: ${String(err)}`);
+        throw err;
     }
 }
 

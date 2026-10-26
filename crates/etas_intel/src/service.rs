@@ -13,7 +13,7 @@ use etas_frontend::{
 use etas_hir::{HirNodeRef, HirType, ResolveResult, SymbolKind, SyntaxNodeRef};
 
 use crate::types::completion::{CompletionItem, CompletionParams};
-use crate::types::diagnostic::{IntelDiagnostic, IntelSeverity};
+use crate::types::diagnostic::IntelDiagnostic;
 use crate::types::location::IntelLocation;
 
 struct ProjectFile {
@@ -60,9 +60,15 @@ pub struct LspTextEdit {
 
 const DEBOUNCE_MS: u64 = 500;
 
+pub type DiagnosticSnapshot = (
+    HashMap<String, Vec<IntelDiagnostic>>,
+    HashMap<SourceId, String>,
+);
+
 pub enum Command {
     SetWorkspaceRoot(PathBuf),
     DebouncedCheck,
+    ReloadPackage,
     OpenDocument {
         uri: String,
         text: String,
@@ -85,10 +91,7 @@ pub enum Command {
         respond: tokio::sync::oneshot::Sender<()>,
     },
     GetDiagnostics {
-        respond: tokio::sync::oneshot::Sender<(
-            HashMap<String, Vec<IntelDiagnostic>>,
-            HashMap<SourceId, String>,
-        )>,
+        respond: tokio::sync::oneshot::Sender<DiagnosticSnapshot>,
     },
     Hover {
         uri: String,
@@ -108,12 +111,17 @@ pub enum Command {
         uri: String,
         respond: tokio::sync::oneshot::Sender<(Vec<IntelSemanticToken>, String)>,
     },
+    DocumentSymbols {
+        uri: String,
+        respond: tokio::sync::oneshot::Sender<(Vec<crate::DocumentSymbol>, String)>,
+    },
 }
 
 pub enum Event {
     DiagnosticsUpdated {
         diagnostics: HashMap<String, Vec<IntelDiagnostic>>,
         source_texts: HashMap<SourceId, String>,
+        versions: HashMap<String, i32>,
     },
 }
 
@@ -145,6 +153,7 @@ struct LanguageService {
     project_files: Vec<ProjectFile>,
     package_state: Option<PreparedPackageState>,
     pending_package_prepare: Option<PendingPackagePrepare>,
+    package_error: Option<String>,
     analysis_stale: bool,
     timer_tx: Option<Sender<()>>,
     event_tx: Option<tokio::sync::mpsc::UnboundedSender<Event>>,
@@ -167,6 +176,7 @@ impl LanguageService {
             project_files: Vec::new(),
             package_state: None,
             pending_package_prepare: None,
+            package_error: None,
             analysis_stale: false,
             timer_tx: None,
             event_tx: None,
@@ -271,10 +281,34 @@ impl LanguageService {
             },
         );
 
-        self.source_versions.insert(source_id, 0);
+        self.source_versions.entry(source_id).or_insert(0);
 
         if added_project_file {
             self.rebuild_project();
+            return;
+        }
+
+        // Opening an unchanged disk-backed document does not invalidate the
+        // checked project. Re-publish its diagnostics with the editor version.
+        if existing_id.is_some()
+            && self.snapshot.as_ref().is_some_and(|snapshot| {
+                snapshot.sources.files.iter().any(|source| {
+                    source.id == source_id && source.text.as_ref() == self.documents[&uri].text
+                })
+            })
+        {
+            self.diagnostics.entry(uri.clone()).or_default();
+            if let Some(event_tx) = &self.event_tx {
+                let _ = event_tx.send(Event::DiagnosticsUpdated {
+                    diagnostics: self.diagnostics.clone(),
+                    source_texts: self.source_texts(),
+                    versions: self
+                        .documents
+                        .values()
+                        .map(|doc| (doc.uri.clone(), doc.version))
+                        .collect(),
+                });
+            }
             return;
         }
 
@@ -282,9 +316,11 @@ impl LanguageService {
         if existing_id.is_some() {
             // File already in project, just replace text
             let doc = self.documents.get(&uri).unwrap();
+            let version = self.source_versions[&source_id] + 1;
+            self.source_versions.insert(source_id, version);
             self.pending_changes.push(SourceChange::Replace {
                 source: source_id,
-                version: SourceVersion(1),
+                version: SourceVersion(version),
                 text: doc.text.clone(),
             });
         } else {
@@ -434,7 +470,7 @@ impl LanguageService {
         &self.diagnostics
     }
 
-    fn infer_workspace_root_from_document(&mut self, path: &PathBuf) {
+    fn infer_workspace_root_from_document(&mut self, path: &Path) {
         if self
             .current_source_root()
             .is_some_and(|src_dir| path.starts_with(src_dir))
@@ -456,7 +492,7 @@ impl LanguageService {
 
         self.poll_package_prepare();
         self.start_package_prepare_if_needed();
-        if self.pending_package_prepare.is_some() {
+        if self.pending_package_prepare.is_some() || self.package_error.is_some() {
             return;
         }
 
@@ -563,6 +599,7 @@ impl LanguageService {
 
         let id = self.session.open_project(input);
         self.project_id = Some(id);
+        self.analysis_stale = true;
     }
 
     fn append_dependency_source_overlays(
@@ -660,7 +697,7 @@ impl LanguageService {
         }
     }
 
-    fn document_belongs_to_current_project(&self, path: &PathBuf) -> bool {
+    fn document_belongs_to_current_project(&self, path: &Path) -> bool {
         let Some(src_dir) = self.current_source_root() else {
             let Some(workspace_root) = &self.workspace_root else {
                 return self.project_id.is_none();
@@ -695,6 +732,7 @@ impl LanguageService {
         self.project_files.clear();
         self.package_state = None;
         self.pending_package_prepare = None;
+        self.package_error = None;
     }
 
     fn activate_document_project(&mut self, uri: &str) -> bool {
@@ -747,7 +785,10 @@ impl LanguageService {
     }
 
     fn start_package_prepare_if_needed(&mut self) {
-        if self.package_state.is_some() || self.pending_package_prepare.is_some() {
+        if self.package_state.is_some()
+            || self.pending_package_prepare.is_some()
+            || self.package_error.is_some()
+        {
             return;
         }
         let Some(root) = self
@@ -805,6 +846,7 @@ impl LanguageService {
             }
             Ok(Err(error)) => {
                 tracing::warn!("failed to prepare etas package environment: {error}");
+                self.package_error = Some(error);
                 false
             }
             Err(TryRecvError::Empty) => {
@@ -820,7 +862,7 @@ impl LanguageService {
 
     fn block_on_prepare(&mut self, timeout: std::time::Duration) -> bool {
         if self.package_state.is_some() {
-            return true;
+            return false;
         }
         let Some(pending) = self.pending_package_prepare.take() else {
             return self.package_state.is_some();
@@ -836,6 +878,7 @@ impl LanguageService {
             }
             Ok(Err(error)) => {
                 tracing::warn!("failed to prepare etas package environment: {error}");
+                self.package_error = Some(error);
                 false
             }
             Err(RecvTimeoutError::Timeout) => {
@@ -854,10 +897,19 @@ impl LanguageService {
             self.rebuild_project();
             return;
         }
+        if self.package_error.is_some() {
+            self.publish_unprepared_diagnostics();
+            return;
+        }
 
         let project_id = match self.project_id {
             Some(id) => id,
-            None => return,
+            None => {
+                if self.package_error.is_some() {
+                    self.publish_unprepared_diagnostics();
+                }
+                return;
+            }
         };
 
         let changes = std::mem::take(&mut self.pending_changes);
@@ -896,6 +948,7 @@ impl LanguageService {
             memory_artifact_reuse: MemoryArtifactReuse::Enabled,
             snapshot_detail: SnapshotDetailLevel::Full,
             collect_pipeline_timing: false,
+            retention: Default::default(),
         };
 
         match self.session.check(project_id, request) {
@@ -933,14 +986,16 @@ impl LanguageService {
                 self.diagnostics = new_diagnostics;
                 self.analysis_stale = false;
                 if let Some(event_tx) = &self.event_tx {
-                    let source_texts: HashMap<SourceId, String> = self
+                    let source_texts = self.source_texts();
+                    let versions = self
                         .documents
                         .values()
-                        .map(|doc| (doc.source_id, doc.text.clone()))
+                        .map(|doc| (doc.uri.clone(), doc.version))
                         .collect();
                     let _ = event_tx.send(Event::DiagnosticsUpdated {
                         diagnostics: self.diagnostics.clone(),
                         source_texts,
+                        versions,
                     });
                 }
             }
@@ -955,6 +1010,10 @@ impl LanguageService {
             self.rebuild_project();
             return;
         }
+        if self.package_error.is_some() {
+            self.publish_unprepared_diagnostics();
+            return;
+        }
         if self.pending_package_prepare.is_some() {
             self.arm_debounced_check();
             return;
@@ -964,13 +1023,83 @@ impl LanguageService {
         }
     }
 
+    fn publish_unprepared_diagnostics(&mut self) {
+        let mut diagnostics = HashMap::new();
+        for doc in self.documents.values() {
+            let parsed = crate::syntax::parse(&doc.text);
+            let mut items: Vec<_> = parsed
+                .parsed
+                .diagnostics
+                .iter()
+                .map(|diag| IntelDiagnostic {
+                    source_id: doc.source_id,
+                    range: diag.primary.span.range,
+                    severity: diag.severity.into(),
+                    code: format!("{:?}", diag.code),
+                    message: diag.message.clone(),
+                })
+                .collect();
+            if let Some(error) = &self.package_error {
+                items.push(IntelDiagnostic {
+                    source_id: doc.source_id,
+                    range: etas_core::TextRange::new(TextSize(0), TextSize(0)),
+                    severity: crate::IntelSeverity::Error,
+                    code: "package::PrepareFailed".to_owned(),
+                    message: format!("Package analysis unavailable: {error}"),
+                });
+            }
+            diagnostics.insert(doc.uri.clone(), items);
+        }
+        self.diagnostics = diagnostics;
+        if let Some(event_tx) = &self.event_tx {
+            let _ = event_tx.send(Event::DiagnosticsUpdated {
+                diagnostics: self.diagnostics.clone(),
+                source_texts: self.source_texts(),
+                versions: self
+                    .documents
+                    .values()
+                    .map(|doc| (doc.uri.clone(), doc.version))
+                    .collect(),
+            });
+        }
+    }
+
     fn source_id_to_uri(&self, source_id: SourceId) -> String {
+        if let Some(doc) = self
+            .documents
+            .values()
+            .find(|doc| doc.source_id == source_id)
+        {
+            return doc.uri.clone();
+        }
         for (uri, id) in &self.url_to_source_id {
             if *id == source_id {
                 return uri.clone();
             }
         }
         format!("file:///unknown_source_{}", source_id.0)
+    }
+
+    fn source_texts(&self) -> HashMap<SourceId, String> {
+        let mut texts: HashMap<_, _> = self
+            .snapshot
+            .iter()
+            .flat_map(|snapshot| snapshot.sources.files.iter())
+            .map(|source| (source.id, source.text.to_string()))
+            .collect();
+        for file in &self.project_files {
+            if let std::collections::hash_map::Entry::Vacant(entry) = texts.entry(file.source_id) {
+                if let Ok(text) = std::fs::read_to_string(&file.path) {
+                    entry.insert(text);
+                }
+            }
+        }
+        texts.extend(
+            self.documents
+                .values()
+                .map(|doc| (doc.source_id, doc.text.clone())),
+        );
+        texts
     }
 
     fn hover(&self, uri: &str, position: LspPosition) -> Option<HoverResult> {
@@ -1087,15 +1216,10 @@ impl LanguageService {
                     }
                 }
                 HirNodeRef::Type(type_id) => {
-                    if let Some(hir_type) = snapshot.hir.types.get(type_id) {
-                        if let HirType::Path { path, .. } = hir_type {
-                            if let ResolveResult::Resolved(symbol_id) = path.resolution {
-                                if let Some(target) =
-                                    snapshot.definition_target_for_symbol(symbol_id)
-                                {
-                                    locations
-                                        .extend(self.resolve_definition_target(target, snapshot));
-                                }
+                    if let Some(HirType::Path { path, .. }) = snapshot.hir.types.get(type_id) {
+                        if let ResolveResult::Resolved(symbol_id) = path.resolution {
+                            if let Some(target) = snapshot.definition_target_for_symbol(symbol_id) {
+                                locations.extend(self.resolve_definition_target(target, snapshot));
                             }
                         }
                     }
@@ -1354,7 +1478,10 @@ impl LanguageService {
             .unwrap_or_default();
         IntelLocation {
             uri,
-            range: span.range,
+            range: crate::syntax::definition_selection(
+                &crate::syntax::parse(&source_text),
+                span.range,
+            ),
             source_text,
         }
     }
@@ -1387,9 +1514,14 @@ impl LanguageService {
     }
 
     fn semantic_tokens(&self, uri: &str) -> (Vec<IntelSemanticToken>, String) {
+        let Some(doc) = self.documents.get(uri) else {
+            return (vec![], String::new());
+        };
+        let parsed = crate::syntax::parse(&doc.text);
+        let lexical = crate::syntax::lexical_tokens(&parsed);
         let snapshot = match self.snapshot.as_ref() {
             Some(s) => s,
-            None => return (vec![], String::new()),
+            None => return (lexical, doc.text.clone()),
         };
         let source_id = match self.url_to_source_id.get(uri) {
             Some(id) => *id,
@@ -1402,6 +1534,9 @@ impl LanguageService {
             .find(|f| f.id == source_id)
             .map(|f| f.text.to_string())
             .unwrap_or_default();
+        if source_text != doc.text {
+            return (lexical, doc.text.clone());
+        }
         let mut tokens: Vec<IntelSemanticToken> = Vec::new();
 
         // 1. Definition sites from symbol_sources
@@ -1421,9 +1556,12 @@ impl LanguageService {
             } else {
                 0u32
             };
+            let Some(range) = crate::syntax::identifier_range(&parsed, span, &sym.name) else {
+                continue;
+            };
             tokens.push(IntelSemanticToken {
-                byte_start: span.range.start.0,
-                byte_end: span.range.end.0,
+                byte_start: range.start.0,
+                byte_end: range.end.0,
                 token_type: ty,
                 modifier_bits: m,
             });
@@ -1454,36 +1592,34 @@ impl LanguageService {
                         .map(|s| s.id),
                     _ => None,
                 },
-                etas_frontend::HirPathResolution::WildcardImport { target } => match target {
-                    ResolvedModuleTarget::Source { module, .. } => {
-                        let name = resolved
-                            .path
-                            .segments
-                            .last()
-                            .map(|s| s.name.as_str())
-                            .unwrap_or("");
-                        let result = snapshot
-                            .modules
-                            .modules
-                            .get(*module)
-                            .and_then(|m| m.visibility_exports.items.get(name))
-                            .and_then(|export| {
-                                snapshot
-                                    .symbols
-                                    .iter()
-                                    .find(|s| {
-                                        s.definition_span.source == export.item.span.source
-                                            && s.definition_span.range.start.0
-                                                >= export.item.span.range.start.0
-                                            && s.definition_span.range.end.0
-                                                <= export.item.span.range.end.0
-                                    })
-                                    .map(|s| s.id)
-                            });
-                        result
-                    }
-                    _ => None,
-                },
+                etas_frontend::HirPathResolution::WildcardImport {
+                    target: ResolvedModuleTarget::Source { module, .. },
+                } => {
+                    let name = resolved
+                        .path
+                        .segments
+                        .last()
+                        .map(|s| s.name.as_str())
+                        .unwrap_or("");
+                    snapshot
+                        .modules
+                        .modules
+                        .get(*module)
+                        .and_then(|m| m.visibility_exports.items.get(name))
+                        .and_then(|export| {
+                            snapshot
+                                .symbols
+                                .iter()
+                                .find(|s| {
+                                    s.definition_span.source == export.item.span.source
+                                        && s.definition_span.range.start.0
+                                            >= export.item.span.range.start.0
+                                        && s.definition_span.range.end.0
+                                            <= export.item.span.range.end.0
+                                })
+                                .map(|s| s.id)
+                        })
+                }
                 _ => None,
             };
             let Some(sym_id) = sym_id else { continue };
@@ -1493,51 +1629,42 @@ impl LanguageService {
             let Some(ty) = semantic_token_type_for_kind(sym.kind) else {
                 continue;
             };
+            let Some(segment) = resolved.path.segments.last() else {
+                continue;
+            };
             tokens.push(IntelSemanticToken {
-                byte_start: span.range.start.0,
-                byte_end: span.range.end.0,
+                byte_start: segment.span.range.start.0,
+                byte_end: segment.span.range.end.0,
                 token_type: ty,
                 modifier_bits: 0,
             });
         }
 
         // 3. Type annotations from type_sources
-        for (_, origin) in &snapshot.source_map.type_sources {
+        for origin in snapshot.source_map.type_sources.values() {
             let span = origin.span();
             if span.source != source_id {
                 continue;
             }
-            tokens.push(IntelSemanticToken {
-                byte_start: span.range.start.0,
-                byte_end: span.range.end.0,
-                token_type: 1, // type
-                modifier_bits: 0,
-            });
+            for token in &parsed.parsed.tokens.tokens {
+                if token.kind == etas_syntax::TokenKind::Ident
+                    && token.span.range.start >= span.range.start
+                    && token.span.range.end <= span.range.end
+                {
+                    tokens.push(IntelSemanticToken {
+                        byte_start: token.span.range.start.0,
+                        byte_end: token.span.range.end.0,
+                        token_type: 1,
+                        modifier_bits: 0,
+                    });
+                }
+            }
         }
 
-        tokens.sort_by_key(|t| t.byte_start);
-        tokens.dedup_by(|a, b| a.byte_start == b.byte_start && a.byte_end == b.byte_end);
-
-        let error_ranges: Vec<(u32, u32)> = self
-            .diagnostics
-            .get(uri)
-            .map(|diags| {
-                diags
-                    .iter()
-                    .filter(|d| d.severity == IntelSeverity::Error && d.source_id == source_id)
-                    .map(|d| (d.range.start.0, d.range.end.0))
-                    .collect()
-            })
-            .unwrap_or_default();
-        if !error_ranges.is_empty() {
-            tokens.retain(|t| {
-                !error_ranges
-                    .iter()
-                    .any(|(start, end)| t.byte_start < *end && t.byte_end > *start)
-            });
-        }
-
-        (tokens, source_text)
+        (
+            crate::syntax::merge_tokens(&parsed, lexical, tokens),
+            source_text,
+        )
     }
 }
 
@@ -1596,12 +1723,14 @@ pub(crate) fn offset_of_position(text: &str, pos: LspPosition) -> usize {
 }
 
 fn uri_to_path(uri: &str) -> Option<PathBuf> {
-    let path = PathBuf::from(uri.strip_prefix("file://").unwrap_or(uri));
+    let path = url::Url::parse(uri).ok()?.to_file_path().ok()?;
     Some(path.canonicalize().unwrap_or(path))
 }
 
 fn path_to_uri(path: &PathBuf) -> String {
-    format!("file://{}", path.display())
+    url::Url::from_file_path(path)
+        .expect("project source path must be absolute")
+        .to_string()
 }
 
 fn path_prefix_at_offset(text: &str, offset: usize) -> Option<String> {
@@ -1831,95 +1960,113 @@ pub fn spawn_service_with_events() -> (
         }
     });
 
-    std::thread::spawn(move || {
-        let mut service = LanguageService::new();
-        service.timer_tx = Some(arm_tx);
-        service.event_tx = Some(event_tx);
+    // Compiler queries run on a dedicated worker, not the platform's smaller
+    // default background-thread stack. Match a foreground compiler's 8 MiB stack.
+    std::thread::Builder::new()
+        .name("etas-analysis".into())
+        .stack_size(8 * 1024 * 1024)
+        .spawn(move || {
+            let mut service = LanguageService::new();
+            service.timer_tx = Some(arm_tx);
+            service.event_tx = Some(event_tx);
 
-        while let Some(cmd) = rx.blocking_recv() {
-            match cmd {
-                Command::SetWorkspaceRoot(path) => {
-                    service.set_workspace_root(path);
-                }
-                Command::DebouncedCheck => {
-                    service.ensure_fresh_analysis();
-                }
-                Command::OpenDocument { uri, text, version } => {
-                    service.open_document(uri, text, version);
-                }
-                Command::ChangeDocument {
-                    uri,
-                    content_changes,
-                    version,
-                } => {
-                    service.change_document(uri, content_changes, version);
-                }
-                Command::CloseDocument { uri } => {
-                    service.close_document(uri);
-                }
-                Command::AddSourceFile { path, respond } => {
-                    service.add_source_file(path);
-                    let _ = respond.send(());
-                }
-                Command::RemoveSourceFile { path, respond } => {
-                    service.remove_source_file(path);
-                    let _ = respond.send(());
-                }
-                Command::GetDiagnostics { respond } => {
-                    if service.poll_package_prepare() {
+            while let Some(cmd) = rx.blocking_recv() {
+                match cmd {
+                    Command::SetWorkspaceRoot(path) => {
+                        service.set_workspace_root(path);
+                    }
+                    Command::DebouncedCheck => {
+                        service.ensure_fresh_analysis();
+                    }
+                    Command::ReloadPackage => {
+                        service.package_state = None;
+                        service.package_error = None;
+                        service.pending_package_prepare = None;
                         service.rebuild_project();
                     }
-                    service.ensure_fresh_analysis();
-                    let diags = service.get_diagnostics().clone();
-                    let texts: HashMap<SourceId, String> = service
-                        .documents
-                        .values()
-                        .map(|doc| (doc.source_id, doc.text.clone()))
-                        .collect();
-                    let _ = respond.send((diags, texts));
-                }
-                Command::Hover {
-                    uri,
-                    position,
-                    respond,
-                } => {
-                    service.activate_document_project(&uri);
-                    if service.block_on_prepare(std::time::Duration::from_secs(30)) {
-                        service.rebuild_project();
+                    Command::OpenDocument { uri, text, version } => {
+                        service.open_document(uri, text, version);
                     }
-                    service.ensure_fresh_analysis();
-                    let result = service.hover(&uri, position);
-                    let _ = respond.send(result);
-                }
-                Command::GoToDefinition {
-                    uri,
-                    position,
-                    respond,
-                } => {
-                    service.activate_document_project(&uri);
-                    if service.block_on_prepare(std::time::Duration::from_secs(30)) {
-                        service.rebuild_project();
+                    Command::ChangeDocument {
+                        uri,
+                        content_changes,
+                        version,
+                    } => {
+                        service.change_document(uri, content_changes, version);
                     }
-                    service.ensure_fresh_analysis();
-                    let result = service.go_to_definition(&uri, position);
-                    let _ = respond.send(result);
-                }
-                Command::Completion { params, respond } => {
-                    service.activate_document_project(&params.uri);
-                    if service.block_on_prepare(std::time::Duration::from_secs(30)) {
-                        service.rebuild_project();
+                    Command::CloseDocument { uri } => {
+                        service.close_document(uri);
                     }
-                    let result = service.completion(params);
-                    let _ = respond.send(result);
-                }
-                Command::SemanticTokens { uri, respond } => {
-                    service.activate_document_project(&uri);
-                    let result = service.semantic_tokens(&uri);
-                    let _ = respond.send(result);
+                    Command::AddSourceFile { path, respond } => {
+                        service.add_source_file(path);
+                        let _ = respond.send(());
+                    }
+                    Command::RemoveSourceFile { path, respond } => {
+                        service.remove_source_file(path);
+                        let _ = respond.send(());
+                    }
+                    Command::GetDiagnostics { respond } => {
+                        if service.poll_package_prepare() {
+                            service.rebuild_project();
+                        }
+                        service.ensure_fresh_analysis();
+                        let diags = service.get_diagnostics().clone();
+                        let texts = service.source_texts();
+                        let _ = respond.send((diags, texts));
+                    }
+                    Command::Hover {
+                        uri,
+                        position,
+                        respond,
+                    } => {
+                        service.activate_document_project(&uri);
+                        if service.block_on_prepare(std::time::Duration::from_secs(30)) {
+                            service.rebuild_project();
+                        }
+                        service.ensure_fresh_analysis();
+                        let result = service.hover(&uri, position);
+                        let _ = respond.send(result);
+                    }
+                    Command::GoToDefinition {
+                        uri,
+                        position,
+                        respond,
+                    } => {
+                        service.activate_document_project(&uri);
+                        if service.block_on_prepare(std::time::Duration::from_secs(30)) {
+                            service.rebuild_project();
+                        }
+                        service.ensure_fresh_analysis();
+                        let result = service.go_to_definition(&uri, position);
+                        let _ = respond.send(result);
+                    }
+                    Command::Completion { params, respond } => {
+                        service.activate_document_project(&params.uri);
+                        if service.block_on_prepare(std::time::Duration::from_secs(30)) {
+                            service.rebuild_project();
+                        }
+                        let result = service.completion(params);
+                        let _ = respond.send(result);
+                    }
+                    Command::SemanticTokens { uri, respond } => {
+                        service.activate_document_project(&uri);
+                        service.ensure_fresh_analysis();
+                        let result = service.semantic_tokens(&uri);
+                        let _ = respond.send(result);
+                    }
+                    Command::DocumentSymbols { uri, respond } => {
+                        let text = service
+                            .documents
+                            .get(&uri)
+                            .map(|doc| doc.text.clone())
+                            .unwrap_or_default();
+                        let parsed = crate::syntax::parse(&text);
+                        let _ = respond.send((crate::syntax::document_symbols(&parsed), text));
+                    }
                 }
             }
-        }
-    });
+        })
+        .expect("failed to start Etas analysis worker");
 
     (tx, event_rx)
 }

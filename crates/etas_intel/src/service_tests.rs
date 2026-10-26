@@ -862,7 +862,7 @@ flow helper() -> i32 {
     std::fs::write(&utils_path, utils_source).unwrap();
 
     let app_uri = format!("file://{}", app_path.display());
-    let utils_uri = format!("file://{}", utils_path.display());
+    let utils_uri = path_to_uri(&utils_path.canonicalize().unwrap());
     service.set_workspace_root(root.clone());
     service.open_document(app_uri.clone(), app_source.to_string(), 1);
 
@@ -1196,7 +1196,7 @@ flow main() -> i32 {
     std::fs::write(&app_path, app_source).unwrap();
 
     let app_uri = format!("file://{}", app_path.display());
-    let utils_uri = format!("file://{}", utils_path.display());
+    let utils_uri = path_to_uri(&utils_path.canonicalize().unwrap());
     let _ = tx.send(Command::SetWorkspaceRoot(root.clone()));
     std::thread::sleep(std::time::Duration::from_millis(10));
 
@@ -1252,7 +1252,7 @@ flow main() -> i32 {
     std::fs::write(&app_path, app_source).unwrap();
 
     let app_uri = format!("file://{}", app_path.display());
-    let utils_uri = format!("file://{}", utils_path.display());
+    let utils_uri = path_to_uri(&utils_path.canonicalize().unwrap());
     let _ = tx.send(Command::SetWorkspaceRoot(root.clone()));
     std::thread::sleep(std::time::Duration::from_millis(10));
 
@@ -1309,7 +1309,7 @@ flow main() -> i32 {
     std::fs::write(&app_path, app_source).unwrap();
 
     let app_uri = format!("file://{}", app_path.display());
-    let utils_uri = format!("file://{}", utils_path.display());
+    let utils_uri = path_to_uri(&utils_path.canonicalize().unwrap());
     let _ = tx.send(Command::SetWorkspaceRoot(root.clone()));
     std::thread::sleep(std::time::Duration::from_millis(10));
 
@@ -1755,7 +1755,7 @@ flow main() -> i32 {
     std::fs::write(&app_path, app_source).unwrap();
 
     let app_uri = format!("file://{}", app_path.display());
-    let utils_uri = format!("file://{}", utils_path.display());
+    let utils_uri = path_to_uri(&utils_path.canonicalize().unwrap());
     let _ = tx.send(Command::SetWorkspaceRoot(root.clone()));
     std::thread::sleep(std::time::Duration::from_millis(10));
 
@@ -1864,7 +1864,7 @@ flow main() -> i32 {
     std::fs::write(&app_path, app_source).unwrap();
 
     let app_uri = format!("file://{}", app_path.display());
-    let utils_uri = format!("file://{}", utils_path.display());
+    let utils_uri = path_to_uri(&utils_path.canonicalize().unwrap());
     let _ = tx.send(Command::SetWorkspaceRoot(root.clone()));
     std::thread::sleep(std::time::Duration::from_millis(10));
 
@@ -2144,9 +2144,9 @@ flow main() -> i32 ![] {
     let locations = goto_def(&tx, &app_uri, line, character);
     let _ = std::fs::remove_dir_all(&workspace_root);
     assert!(
-        locations
-            .iter()
-            .any(|location| location.uri.ends_with("/.etas/vendor/edk/http/src/edk/http.es")),
+        locations.iter().any(|location| location
+            .uri
+            .ends_with("/.etas/vendor/edk/http/src/edk/http.es")),
         "nested example should activate its own package and resolve edk.http dependency, got: {:?}",
         locations
     );

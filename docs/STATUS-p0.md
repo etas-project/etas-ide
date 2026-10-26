@@ -1,198 +1,89 @@
-# Etas IDE — Status & Roadmap
+# Etas IDE Status
 
-## Current Status
+Version: 0.2.0
 
-### What works
+Updated: 2026-10-26
 
-| Feature | Status |
-|---|---|
-| **Server scaffolding** (init/shutdown/capabilities) | Done |
-| **Document sync** (didOpen/didChange/didClose) | Done — incremental sync |
-| **Diagnostics** (parse errors, type errors) | Done — published on every change |
-| **Hover** (type info on expressions) | Done — type from TypeFacts |
-| **VSCode extension** | Done — activates on `.es`, spawns LSP over stdio |
-| **Bundled server binary** | Done — release binary in VSIX at `server/etas-lsp` |
-| **CI packaging** | Done — `package-vsix.yml` builds binary + bundles extension + creates release |
+## Implemented
 
-### What's missing (P1/P2)
+- VS Code TextMate grammar covering every keyword in the linked compiler's
+  `Keyword::from_ident` table, declarations, annotations, primitive types,
+  numeric/character/string literals, comments, and operators.
+- LSP incremental document sync, versioned parse/name/type/effect diagnostics,
+  hover, completion, definition, document symbols, and full semantic tokens.
+- Parser-backed Outline for modules, types, aliases, enums/variants,
+  specs/methods, impl methods, effects/actions, tools, agents, and flows.
+- UTF-16 ranges and semantic-token deltas; multiline tokens are split into
+  non-overlapping single-line segments. Broad HIR origins cannot paint whole
+  expressions or declarations as a single identifier.
+- Current-buffer lexical tokens and Outline during incomplete edits. Checked
+  semantic classifications are used only when their source text matches the
+  buffer.
+- Recursive project discovery and package dependency overlays through public
+  frontend/driver/package APIs. No compiler or interpreter implementation is
+  owned by this repository.
+- Explicit package preparation failure diagnostics and reload on manifest,
+  lockfile, or package-index changes. Invalid package setup is not reported as
+  a successful standalone analysis.
+- Unchanged disk-backed document opens reuse the checked project. Hover and
+  completion do not rebuild an already-prepared package on every request.
+- Dedicated 8 MiB compiler analysis worker stack, stdio-safe logging, bundled
+  native LSP binary, and VSIX packaging.
 
-| Feature | Priority |
-|---|---|
-| Debounce (150ms delay before re-check) | P1 |
-| Multi-file project support (walk `src/` for `.es` files) | P1 |
-| Go-to-definition | P1 |
-| Completions (keywords + symbols in scope) | P2 |
-| Document symbols / workspace symbols | P2 |
-| Semantic tokens | P2 |
-| References | P2 |
-| Code actions (from diagnostic suggestions) | P2 |
-| Proper type display (not `{:?}` format) | P2 |
+## Verification
 
----
+The 0.2.0 development verification includes:
 
-## Architecture
+- `cargo test --workspace --offline`: 42 tests passed.
+- Extension TypeScript compile and esbuild bundle.
+- TextMate tests with VS Code's tokenizer and Oniguruma; the keyword list is
+  read from the exact Cargo-resolved compiler revision, not a copied list.
+- Real stdio LSP tests for initialization, Outline, lexical and semantic
+  ranges, parse errors, versioned diagnostics, UTF-16 incremental edits,
+  recovery, and package preparation failure/reload.
+- Real VS Code extension-host tests against `~/Projects/nomo`: 52 source
+  files with Outline and semantic providers, plus unsaved parse-error/recovery
+  and Unicode-position tests in a temporary document.
+- TextMate verification over the same 52 files: 4,565 keyword occurrences.
 
-```
-VSCode Extension (TypeScript, bundled with esbuild)
-  │ stdio spawn
-  ▼
-etas_lsp (tower-lsp 0.20, Rust)
-  │ channel (tokio::mpsc)
-  ▼
-etas_intel (std::thread service, Rust)
-  │ FrontendSession
-  ▼
-etas_frontend (compiler pipeline: parse → lower → resolve → check)
-```
+The project tests read source files but do not run model, network, tool, or
+runtime actions. Package loading may acquire the package manager's local
+metadata lock.
 
-**Key design decisions:**
-- `LanguageService` runs on a dedicated `std::thread` because `FrontendSession` is `!Send`
-- Communication via `tokio::sync::mpsc::unbounded_channel` with `Command` enum
-- `tower-lsp` 0.20 with `vscode-languageclient` 8.x
-- Extension bundled with esbuild (755KB), no `node_modules` in VSIX
-- Server binary (6.9MB stripped release) bundled in VSIX at `server/etas-lsp`
-- Logs go to the platform temporary directory as `etas-lsp-<pid>.log`; `ETAS_LSP_LOG` overrides the path
-
----
-
-## File map
-
-```
-etas-ide/
-├── Cargo.toml                          # workspace: etas_intel + etas_lsp
-├── .github/workflows/package-vsix.yml  # CI: checkout all repos, build binary + bundle + VSIX
-├── docs/architect/
-│   ├── repository-boundary.md          # architecture rules for ide repo
-│   ├── lsp-p0-implementation-plan.md   # implementation plan
-│   └── lsp-p0-results.md               # (outdated) build notes
-├── crates/
-│   ├── etas_intel/src/
-│   │   ├── lib.rs                      # exports: spawn_service, Command, HoverResult, LspPosition/Types
-│   │   ├── service.rs                  # LanguageService (thread), Command enum, position conversion
-│   │   └── types/
-│   │       └── diagnostic.rs           # IntelDiagnostic, IntelSeverity
-│   └── etas_lsp/src/
-│       ├── main.rs                     # binary entry: file-based tracing, tower-lsp Server
-│       ├── server.rs                   # Backend (LanguageServer trait), publish diagnostics, hover
-│       └── conversions.rs              # IntelDiagnostic → lsp_types::Diagnostic (byte→line/col)
-└── editors/vscode/
-    ├── package.json                    # activationEvents, scripts (build, build-server, compile)
-    ├── tsconfig.json                   # commonjs, skipLibCheck, strict
-    ├── .vscodeignore                   # excludes src/, tsconfig, node_modules; keeps out/, dist/, server/
-    ├── .vscode/launch.json             # F5 debug configs
-    ├── .vscode/tasks.json              # npm build/compile tasks
-    ├── src/extension.ts                # activate: resolveServerPath, LanguageClient setup
-    ├── server/etas-lsp                # (generated) release binary
-    ├── dist/extension.js               # (generated) esbuild bundle
-    └── out/extension.js                # (generated) tsc output (for dev only)
-```
-
----
-
-## Build & run
-
-### Quick build
+## Reproduce
 
 ```bash
-# In one command
-cd etas-ide/editors/vscode && vsce package
-# vscode:prepublish runs: esbuild bundle + cargo build --release + copy binary
+cargo build -p etas_lsp --locked
+cargo test --workspace --locked --offline
+cd editors/vscode
+npm ci
+npm run compile
+ETAS_E2E_PROJECT="$HOME/Projects/nomo" npm test
+ETAS_E2E_PROJECT="$HOME/Projects/nomo" npm run test:lsp
+npm run package:vsix
 ```
 
-### Individual steps
+For the real editor gate, launch a local VS Code executable with:
 
-```bash
-# Server binary
-cd etas-ide && cargo build -p etas_lsp --release
+- `--extensionDevelopmentPath=<repo>/editors/vscode`
+- `--extensionTestsPath=<repo>/editors/vscode/test/vscode-host.cjs`
+- isolated `--user-data-dir` and `--extensions-dir`
+- `ETAS_E2E_PROJECT` pointing at the target project
+- optional `ETAS_LSP_BIN` for a development binary; otherwise the extension
+  uses its bundled server
+- optional `ETAS_E2E_RESULT` for a JSON success/failure report
 
-# Extension bundle
-cd etas-ide/editors/vscode
-npm install
-npm run build          # esbuild
+## Remaining Work
 
-# Bundle binary into extension
-npm run build-server   # cargo build --release + cp to server/
+Workspace symbols, references, code actions, formatting, cancellation of an
+in-flight compiler query, and simultaneous per-package sessions are not yet
+implemented. The current service switches its active semantic project when a
+document in another package is activated. It does not claim simultaneous
+multi-root semantic sessions.
 
-# Package VSIX
-npx vsce package --allow-missing-repository
-```
+Hover/definition may retain last-good semantic facts during invalid edits;
+Outline and tokens use the current buffer. A broader current-source semantic
+recovery model belongs in the frontend API, not a second IDE type checker.
 
-### Smoke test
-
-```bash
-build_frame() { local len=$(echo -n "$1"|wc -c); printf "Content-Length: %d\r\n\r\n%s" "$len" "$1"; }
-{
-  build_frame '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"processId":null,"capabilities":{}}}'
-  sleep 0.1
-} | timeut 3 target/release/etas-lsp
-# Expected: hoverProvider: true, textDocumentSync: 2
-```
-
-### Install in VSCode
-
-```
-Ctrl+Shift+P → "Extensions: Install from VSIX..."
-→ select: editors/vscode/etas-0.1.0.vsix
-→ Reload Window
-→ Open any .es file
-```
-
-### Debug extension
-
-```
-Open etas-ide/editors/vscode/ in VSCode
-F5 → "Launch Extension"
-→ Opens Extension Dev Host with extension loaded
-```
-
-### View logs
-
-```bash
-ETAS_LSP_LOG="$PWD/etas-lsp.log" code .
-tail -f etas-lsp.log
-```
-
----
-
-## CI (GitHub Actions)
-
-`.github/workflows/package-vsix.yml` does:
-
-1. Checkout `etas-ide`
-2. Setup Rust stable + Node 24
-3. `npm ci` using the committed npm lockfile
-4. `npm run package:vsix`:
-   - `cargo build --release` + copy the LSP binary to `server/`
-   - `vsce package` triggers `vscode:prepublish` and the esbuild bundle
-5. Create GitHub Release (dev prerelease on push, proper release on tag)
-
----
-
-## Cross-repo dependency setup
-
-This repo uses Git dependencies for cross-repository crates:
-
-```toml
-# etas-ide/Cargo.toml
-etas_core = { git = "https://github.com/etas-project/etas-core.git" }
-etas_frontend = { git = "https://github.com/etas-project/etas-frontend.git" }
-etas_hir = { git = "https://github.com/etas-project/etas-frontend.git" }
-etas_types = { git = "https://github.com/etas-project/etas-frontend.git" }
-```
-
-Cargo resolves these dependencies from the public repositories in CI and normal
-standalone clones. Local overrides, when needed, belong in an ignored
-`.cargo/config.toml`, not in committed manifests.
-
----
-
-## Known quirks & future work
-
-1. **Protocol-safe logging** — logs stay off stdout and use a per-process temporary file unless `ETAS_LSP_LOG` is set.
-2. **No debounce** — every keystroke triggers a full check. Add 150ms timer.
-3. **Single-file only** — multi-file projects need source discovery (walk `src/`).
-4. **Type display raw** — hover shows internal type representation (`Primitive(Int)`). Needs friendly display.
-5. **Thread-based service** — adds ~1ms latency per query. Could switch to `!Send` workaround with tower-lsp local task spawn.
-6. **Release binary is 6.9MB** — could be smaller with LTO, or if `etas-core` symbol count is reduced.
-7. **`tower-lsp` 0.20 → `lsp-types` 0.94** — URLs use `Url::parse()` not `Uri::from_str()`. Don't add lsp-types 0.97 separately to the workspace.
-8. **VSIX ~2.75MB** — fine for now. The extension bundle (755KB) + stripped server binary (6.9MB raw, 2MB compressed).
+The bundled server is native. Build/install a VSIX for the target operating
+system and architecture; do not ship a binary built for a different platform.

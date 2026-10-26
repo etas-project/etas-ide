@@ -19,7 +19,8 @@ effect checker.
 | VS Code extension with bundled server | Available |
 | CI build and VSIX packaging | Available |
 | Find references | Not implemented |
-| Document/workspace symbols | Not implemented |
+| Document symbols / Outline | Available, from the current frontend AST |
+| Workspace symbols | Not implemented |
 
 The LSP server advertises only implemented capabilities. Pending features must
 not be exposed as empty successful responses.
@@ -72,6 +73,13 @@ safe. Semantic answers can therefore refer to last-good state until the source
 becomes valid again; clients must not mistake that state for a successful
 current compilation.
 
+Outline and lexical tokens always use the current buffer through the compiler's
+public parse/token API. Semantic classifications are applied only when the
+checked source matches that buffer, and only to identifier tokens. All LSP
+ranges and token deltas use UTF-16, including multiline comments/strings.
+Package preparation errors are published explicitly; they do not silently turn
+an invalid package into a checked standalone file.
+
 ## Repository Layout
 
 ```text
@@ -113,6 +121,8 @@ Build the extension:
 cd editors/vscode
 npm install
 npm run compile
+npm test
+npm run test:lsp
 npm run build
 ```
 
@@ -139,6 +149,22 @@ Changes to semantic features should include tests at both boundaries:
   UTF-16 position conversion.
 
 ## Documents
+
+The real-project tests accept `ETAS_E2E_PROJECT`, for example:
+
+```bash
+cd editors/vscode
+ETAS_E2E_PROJECT="$HOME/Projects/nomo" npm test
+ETAS_E2E_PROJECT="$HOME/Projects/nomo" npm run test:lsp
+```
+
+`test/vscode-host.cjs` is also a VS Code extension-host suite. Launch VS Code
+with `--extensionDevelopmentPath` pointing at `editors/vscode` and
+`--extensionTestsPath` pointing at that file. Set `ETAS_E2E_PROJECT` to the
+project and optionally `ETAS_LSP_BIN` to a development server. Use separate
+`--user-data-dir` and `--extensions-dir` directories. The suite opens real
+project files read-only and tests unsaved error/recovery edits in a temporary
+document. `ETAS_E2E_RESULT` optionally selects a JSON result file.
 
 - [Current IDE status](docs/STATUS-p0.md)
 - [Repository boundary](docs/architect/repository-boundary.md)

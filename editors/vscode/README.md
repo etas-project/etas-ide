@@ -4,14 +4,19 @@ Etas language support for Visual Studio Code.
 
 ## Features
 
-- **Syntax Highlighting** - TextMate grammar covering basic Etas syntax.
+- **Syntax Highlighting** - All compiler keywords, declaration names, annotations, primitive types, literals, comments, and operators.
 - **Diagnostics** - Inline parse/type/effect errors and warnings, refreshed as you type (after a short debounce).
 - **Hover** - Type and symbol info under the cursor.
 - **Go to Definition** - Jump to definitions, across files.
 - **Completions** - Context-aware completions for keywords, symbols, imports, types.
 - **Semantic Highlighting** - Semantic colors for functions, types, params, variables.
+- **Outline** - Current parser declarations, spec/impl methods, effect actions, and enum members.
 
-> Not yet supported: find references, document symbols, code actions.
+All positions use UTF-16. Highlighting and Outline remain available during
+incomplete edits; package setup failures are reported explicitly in Problems.
+Changing `etas.toml`, `etas.lock`, or package-index metadata reloads analysis.
+
+> Not yet supported: find references, workspace symbols, code actions.
 
 ## Requirements
 

@@ -1,0 +1,93 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const vscode = require('vscode');
+
+async function eventually(query, accept, label) {
+    const deadline = Date.now() + 120000;
+    while (Date.now() < deadline) {
+        const result = await query();
+        if (accept(result)) return result;
+        await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    throw new Error('VS Code timed out: ' + label);
+}
+
+async function run() {
+    if (process.env.ETAS_LSP_BIN) {
+        await vscode.workspace.getConfiguration('etas.lsp').update('path', process.env.ETAS_LSP_BIN, vscode.ConfigurationTarget.Global);
+    }
+    const extension = vscode.extensions.getExtension('etas-project.etas');
+    assert.ok(extension, 'Etas extension must be loaded by VS Code');
+    await extension.activate();
+    const project = process.env.ETAS_E2E_PROJECT;
+    assert.ok(project, 'ETAS_E2E_PROJECT must select a real project');
+    let checked = 0;
+    for (const name of fs.readdirSync(path.join(project, 'src'), { recursive: true })) {
+        if (!name.endsWith('.es')) continue;
+        const uri = vscode.Uri.file(path.join(project, 'src', name));
+        const doc = await vscode.workspace.openTextDocument(uri);
+        assert.equal(doc.languageId, 'etas', name);
+        const symbols = await eventually(
+            () => vscode.commands.executeCommand('vscode.executeDocumentSymbolProvider', uri),
+            result => Array.isArray(result) && result.length > 0, 'outline: ' + name);
+        assert.ok(symbols.some(symbol => symbol.name.startsWith('nomo')), name);
+        const legend = await vscode.commands.executeCommand('vscode.provideDocumentSemanticTokensLegend', uri);
+        const tokens = await eventually(
+            () => vscode.commands.executeCommand('vscode.provideDocumentSemanticTokens', uri),
+            result => result && result.data.length > 0, 'tokens: ' + name);
+        assert.ok(legend.tokenTypes.includes('keyword'));
+        assert.equal(tokens.data.length % 5, 0);
+        checked++;
+    }
+    assert.ok(checked > 0);
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'etas-vscode-e2e-'));
+    try {
+        const uri = vscode.Uri.file(path.join(root, 'unicode.es'));
+        const valid = 'module unicode;\nflow main() -> i32 { let text = "中文😀"; return 0; }\n';
+        fs.writeFileSync(uri.fsPath, valid);
+        const doc = await vscode.workspace.openTextDocument(uri);
+        await vscode.window.showTextDocument(doc);
+        const edit = new vscode.WorkspaceEdit();
+        edit.replace(uri, new vscode.Range(0, 0, doc.lineCount, 0), valid.replace('return 0;', 'let broken = ; return 0;'));
+        assert.equal(await vscode.workspace.applyEdit(edit), true);
+        const diagnostics = await eventually(
+            () => vscode.languages.getDiagnostics(uri),
+            result => result.some(diag => String(diag.code).includes('Syntax')), 'parse diagnostics');
+        assert.ok(diagnostics.some(diag => diag.source === 'etas'));
+        const repaired = new vscode.WorkspaceEdit();
+        repaired.replace(uri, new vscode.Range(0, 0, doc.lineCount, 0), valid);
+        assert.equal(await vscode.workspace.applyEdit(repaired), true);
+        await eventually(
+            () => vscode.languages.getDiagnostics(uri),
+            result => !result.some(diag => diag.severity === vscode.DiagnosticSeverity.Error), 'diagnostic recovery');
+        const tokens = await vscode.commands.executeCommand('vscode.provideDocumentSemanticTokens', uri);
+        const legend = await vscode.commands.executeCommand('vscode.provideDocumentSemanticTokensLegend', uri);
+        let line = 0, col = 0, sawReturn = false;
+        for (let i = 0; i < tokens.data.length; i += 5) {
+            line += tokens.data[i];
+            col = tokens.data[i] ? tokens.data[i + 1] : col + tokens.data[i + 1];
+            if (legend.tokenTypes[tokens.data[i + 3]] === 'keyword'
+                && doc.getText(new vscode.Range(line, col, line, col + tokens.data[i + 2])) === 'return') {
+                assert.equal(col, valid.split('\n')[line].indexOf('return'));
+                sawReturn = true;
+            }
+        }
+        assert.ok(sawReturn, 'UTF-16 return token must reach the VS Code provider');
+        await vscode.commands.executeCommand('workbench.action.revertAndCloseActiveEditor');
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+    console.log('VS Code E2E passed: ' + checked + ' nomo files, outline, semantic providers, parse errors and recovery');
+}
+
+exports.run = async function () {
+    try {
+        await run();
+        if (process.env.ETAS_E2E_RESULT) fs.writeFileSync(process.env.ETAS_E2E_RESULT, JSON.stringify({ passed: true }));
+    } catch (error) {
+        if (process.env.ETAS_E2E_RESULT) fs.writeFileSync(process.env.ETAS_E2E_RESULT, JSON.stringify({ passed: false, error: error.stack || String(error) }));
+        throw error;
+    }
+};

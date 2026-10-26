@@ -1,351 +1,97 @@
 {
-    "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
-    "name": "Etas",
-    "fileTypes": [
-        "es"
-    ],
-    "scopeName": "source.etas",
-    "patterns": [
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Etas",
+  "scopeName": "source.etas",
+  "fileTypes": ["es"],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#declarations" },
+    { "include": "#keywords" },
+    { "include": "#constants" },
+    { "include": "#types" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        { "name": "comment.line.documentation.etas", "match": "///.*$" },
+        { "name": "comment.line.double-slash.etas", "match": "//.*$" },
+        { "name": "comment.block.etas", "begin": "/\\*", "end": "\\*/" }
+      ]
+    },
+    "strings": {
+      "patterns": [
         {
-            "include": "#block-comments"
+          "name": "string.quoted.double.etas",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [{ "include": "#escapes" }]
         },
         {
-            "include": "#comments"
-        },
-        {
-            "include": "#strings"
-        },
-        {
-            "include": "#constants"
-        },
-        {
-            "include": "#keywords"
-        },
-        {
-            "include": "#modules"
-        },
-        {
-            "include": "#types"
-        },
-        {
-            "include": "#punctuation"
+          "name": "string.quoted.single.etas",
+          "begin": "'",
+          "end": "'",
+          "patterns": [{ "include": "#escapes" }]
         }
-    ],
-    "repository": {
-        "comments": {
-            "patterns": [
-                {
-                    "comment": "doc comments",
-                    "name": "comment.line.documentation.etas",
-                    "match": "(///).*$",
-                    "captures": {
-                        "1": {
-                            "name": "punctuation.definition.comment.etas"
-                        }
-                    }
-                },
-                {
-                    "comment": "line comments",
-                    "name": "comment.line.double-slash.etas",
-                    "match": "(//).*$",
-                    "captures": {
-                        "1": {
-                            "name": "punctuation.definition.comment.etas"
-                        }
-                    }
-                }
-            ]
+      ]
+    },
+    "escapes": {
+      "name": "constant.character.escape.etas",
+      "match": "\\\\(?:[nrt0\"'\\\\]|x[\\da-fA-F]{2}|u\\{[\\da-fA-F]{1,6}\\})"
+    },
+    "declarations": {
+      "patterns": [
+        {
+          "match": "\\b(flow|tool|agent|action)\\s+([\\p{L}_][\\p{L}\\p{N}_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.etas" },
+            "2": { "name": "entity.name.function.etas" }
+          }
         },
-        "block-comments": {
-            "patterns": [
-                {
-                    "comment": "empty block comments",
-                    "name": "comment.block.etas",
-                    "match": "/\\*\\*/"
-                },
-                {
-                    "comment": "block doc comments",
-                    "name": "comment.block.documentation.etas",
-                    "begin": "/\\*\\*",
-                    "end": "\\*/",
-                    "patterns": [
-                        {
-                            "include": "#block-comments"
-                        }
-                    ]
-                },
-                {
-                    "comment": "block comments",
-                    "name": "comment.block.etas",
-                    "begin": "/\\*(?!\\*)",
-                    "end": "\\*/",
-                    "patterns": [
-                        {
-                            "include": "#block-comments"
-                        }
-                    ]
-                }
-            ]
+        {
+          "match": "\\b(type|alias|enum|spec|effect|protocol)\\s+([\\p{L}_][\\p{L}\\p{N}_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.etas" },
+            "2": { "name": "entity.name.type.etas" }
+          }
         },
-        "constants": {
-            "patterns": [
-                {
-                    "comment": "booleans",
-                    "name": "constant.language.bool.etas",
-                    "match": "\\b(true|false)\\b"
-                },
-                {
-                    "comment": "option variants",
-                    "name": "constant.language.option.etas",
-                    "match": "\\b(Some|None)\\b"
-                },
-                {
-                    "comment": "result variants",
-                    "name": "constant.language.result.etas",
-                    "match": "\\b(Ok|Err)\\b"
-                },
-                {
-                    "comment": "decimal integers and floats",
-                    "name": "constant.numeric.decimal.etas",
-                    "match": "\\b\\d[\\d_]*(\\.?)[\\d_]*(?:(E|e)([+-]?)([\\d_]+))\\b",
-                    "captures": {
-                        "1": {
-                            "name": "punctuation.separator.dot.decimal.etas"
-                        },
-                        "2": {
-                            "name": "keyword.operator.exponent.etas"
-                        },
-                        "3": {
-                            "name": "keyword.operator.exponent.sign.etas"
-                        },
-                        "4": {
-                            "name": "constant.numeric.decimal.exponent.mantissa.etas"
-                        }
-                    }
-                }
-            ]
+        {
+          "match": "(?<=:)\\s*\\b(callable|trace)\\b",
+          "captures": { "1": { "name": "storage.type.spec-kind.etas" } }
         },
-        "types": {
-            "patterns": [
-                {
-                    "comment": "type definitions",
-                    "match": "\\b(type)\\s+([A-Z][A-Za-z0-9_]*)",
-                    "captures": {
-                        "1": {
-                            "name": "keyword.declaration.type.etas"
-                        },
-                        "2": {
-                            "name": "entity.name.type.declaration.etas"
-                        }
-                    }
-                },
-                {
-                    "comment": "enum definitions",
-                    "match": "\\b(enum)\\s+([A-Z][A-Za-z0-9_]*)",
-                    "captures": {
-                        "1": {
-                            "name": "keyword.declaration.enum.etas"
-                        },
-                        "2": {
-                            "name": "entity.name.type.enum.etas"
-                        }
-                    }
-                }
-            ]
-        },
-        "keywords": {
-            "patterns": [
-                {
-                    "comment": "declaration keywords",
-                    "name": "keyword.declaration.etas",
-                    "match": "\\b(flow|tool|agent|impl|alias|spec|extends)\\b"
-                },
-                {
-                    "comment": "control flow keywords",
-                    "name": "keyword.control.etas",
-                    "match": "\\b(if|else|match|for|while|return|limit|in|retry|break|continue)\\b"
-                },
-                {
-                    "comment": "other keywords",
-                    "name": "keyword.other.etas",
-                    "match": "\\b(let|var|memory|effect|policy|protocol|action|require|as|allow|deny|before|after)\\b"
-                },
-                {
-                    "comment": "handler keywords",
-                    "name": "keyword.control.handler.etas",
-                    "match": "\\b(perform|handle|handler|with|resume|finish)\\b"
-                },
-                {
-                    "comment": "visibility modifiers",
-                    "name": "storage.modifier.etas",
-                    "match": "\\b(public|private)\\b"
-                },
-                {
-                    "comment": "fat arrow",
-                    "name": "keyword.operator.arrow.fat.etas",
-                    "match": "=>"
-                },
-                {
-                    "comment": "tilde arrow",
-                    "name": "keyword.operator.arrow.tilde.etas",
-                    "match": "~>"
-                },
-                {
-                    "comment": "pipe composition",
-                    "name": "keyword.operator.pipe.etas",
-                    "match": "\\|"
-                },
-                {
-                    "comment": "question mark operator",
-                    "name": "keyword.operator.question.etas",
-                    "match": "\\?"
-                },
-                {
-                    "comment": "dot access",
-                    "name": "keyword.operator.access.dot.etas",
-                    "match": "\\."
-                },
-                {
-                    "comment": "assignment",
-                    "name": "keyword.operator.assignment.etas",
-                    "match": "="
-                },
-                {
-                    "comment": "comparison operators",
-                    "name": "keyword.operator.comparison.etas",
-                    "match": "==|!=|<=|>=|<|>"
-                },
-                {
-                    "comment": "arithmetic operators",
-                    "name": "keyword.operator.math.etas",
-                    "match": "\\+|-(?!>)|\\*|/|%"
-                },
-                {
-                    "comment": "logical operators",
-                    "name": "keyword.operator.logical.etas",
-                    "match": "&&|\\|\\||!"
-                }
-            ]
-        },
-        "modules": {
-            "patterns": [
-                {
-                    "comment": "module declarations",
-                    "match": "\\b(module)\\s+([^;]*);",
-                    "captures": {
-                        "1": {
-                            "name": "keyword.declaration.module.etas"
-                        },
-                        "2": {
-                            "name": "entity.name.module.etas"
-                        }
-                    }
-                },
-                {
-                    "comment": "imports",
-                    "match": "\\b(import)\\s+([^;]*);",
-                    "captures": {
-                        "1": {
-                            "name": "keyword.control.import.etas"
-                        },
-                        "2": {
-                            "name": "entity.name.module.etas"
-                        }
-                    }
-                }
-            ]
-        },
-        "punctuation": {
-            "patterns": [
-                {
-                    "comment": "comma",
-                    "name": "punctuation.comma.etas",
-                    "match": ","
-                },
-                {
-                    "comment": "curly braces",
-                    "name": "punctuation.brackets.curly.etas",
-                    "match": "[{}]"
-                },
-                {
-                    "comment": "parentheses",
-                    "name": "punctuation.brackets.round.etas",
-                    "match": "[()]"
-                },
-                {
-                    "comment": "square brackets",
-                    "name": "punctuation.brackets.square.etas",
-                    "match": "[\\[\\]]"
-                },
-                {
-                    "comment": "angle brackets",
-                    "name": "punctuation.brackets.angle.etas",
-                    "match": "[<>]"
-                },
-                {
-                    "comment": "semicolon",
-                    "name": "punctuation.semi.etas",
-                    "match": ";"
-                },
-                {
-                    "comment": "colon",
-                    "name": "punctuation.colon.etas",
-                    "match": ":"
-                },
-                {
-                    "comment": "tilde",
-                    "name": "punctuation.tilde.etas",
-                    "match": "~"
-                }
-            ]
-        },
-        "strings": {
-            "patterns": [
-                {
-                    "comment": "double-quoted strings",
-                    "name": "string.quoted.double.etas",
-                    "begin": "\"",
-                    "beginCaptures": {
-                        "0": {
-                            "name": "punctuation.definition.string.etas"
-                        }
-                    },
-                    "end": "\"",
-                    "endCaptures": {
-                        "0": {
-                            "name": "punctuation.definition.string.etas"
-                        }
-                    },
-                    "patterns": [
-                        {
-                            "include": "#escapes"
-                        }
-                    ]
-                }
-            ]
-        },
-        "escapes": {
-            "comment": "escape sequences",
-            "name": "constant.character.escape.etas",
-            "match": "\\\\(?:[nrt0\"\\\\]|x[\\da-fA-F]{2}|u\\{[\\da-fA-F]{4,6}\\})"
-        },
-        "lvariables": {
-            "patterns": [
-                {
-                    "comment": "self variable",
-                    "name": "variable.language.self.etas",
-                    "match": "\\bself\\b"
-                }
-            ]
-        },
-        "variables": {
-            "patterns": [
-                {
-                    "comment": "variables and identifiers",
-                    "name": "variable.other.etas",
-                    "match": "\\b(?<!\\.)[a-z_][A-Za-z0-9_]*\\b"
-                }
-            ]
-        }
+        { "name": "entity.name.function.decorator.etas", "match": "@[\\p{L}_][\\p{L}\\p{N}_.]*" }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        { "name": "keyword.control.import.etas", "match": "\\b(module|import|as)\\b" },
+        { "name": "keyword.declaration.etas", "match": "\\b(alias|type|enum|spec|impl|flow|effect|policy|action|tool|agent|protocol|extends)\\b" },
+        { "name": "keyword.control.etas", "match": "\\b(if|else|match|for|in|while|limit|retry|return|break|continue)\\b" },
+        { "name": "keyword.control.handler.etas", "match": "\\b(perform|handle|handler|with|resume|finish)\\b" },
+        { "name": "keyword.other.etas", "match": "\\b(let|var|where|follows|allow|require|deny|before|after)\\b" },
+        { "name": "storage.modifier.etas", "match": "\\b(private|public)\\b" },
+        { "name": "variable.language.etas", "match": "\\bself\\b" }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        { "name": "constant.language.bool.etas", "match": "\\b(true|false)\\b" },
+        { "name": "constant.language.variant.etas", "match": "\\b(Some|None|Ok|Err)\\b" },
+        { "name": "constant.numeric.etas", "match": "\\b(?:0[xX][\\da-fA-F_]+|0[oO][0-7_]+|0[bB][01_]+|\\d[\\d_]*(?:\\.\\d[\\d_]*)?(?:[eE][+-]?[\\d_]+)?)\\b" }
+      ]
+    },
+    "types": {
+      "patterns": [
+        { "name": "storage.type.primitive.etas", "match": "\\b(bool|string|bytes|char|unit|never|[iu](?:8|16|32|64|128|size)|f32|f64)\\b" },
+        { "name": "support.type.etas", "match": "\\b[A-Z][A-Za-z0-9_]*\\b" }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        { "name": "keyword.operator.etas", "match": "=>|->|~>|>>|<<|==|!=|<=|>=|&&|\\|\\||::|[=+*/%!?~|&^<>@#-]" },
+        { "name": "punctuation.etas", "match": "[{}()\\[\\],;:.]" }
+      ]
     }
+  }
 }

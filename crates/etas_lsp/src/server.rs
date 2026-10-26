@@ -27,8 +27,10 @@ impl Backend {
                     Event::DiagnosticsUpdated {
                         diagnostics,
                         source_texts,
+                        versions,
                     } => {
-                        publish_diagnostics(&pump_client, &diagnostics, &source_texts).await;
+                        publish_diagnostics(&pump_client, &diagnostics, &source_texts, &versions)
+                            .await;
                         let _ = pump_client.semantic_tokens_refresh().await;
                     }
                 }
@@ -43,14 +45,16 @@ async fn publish_diagnostics(
     client: &Client,
     diagnostics_map: &HashMap<String, Vec<etas_intel::IntelDiagnostic>>,
     source_texts: &HashMap<SourceId, String>,
+    versions: &HashMap<String, i32>,
 ) {
     // Publish for all known URIs (including those with no diagnostics)
     for (uri_str, intel_diags) in diagnostics_map {
+        let version = versions.get(uri_str).copied();
         let uri = Url::parse(uri_str).unwrap_or_else(|_| Url::parse("file:///unknown.es").unwrap());
 
         if intel_diags.is_empty() {
             // Clear diagnostics for this URI
-            client.publish_diagnostics(uri, vec![], None).await;
+            client.publish_diagnostics(uri, vec![], version).await;
             continue;
         }
 
@@ -65,14 +69,19 @@ async fn publish_diagnostics(
             })
             .collect();
 
-        client.publish_diagnostics(uri, lsp_diags, None).await;
+        client.publish_diagnostics(uri, lsp_diags, version).await;
     }
 }
 
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
     async fn initialize(&self, params: InitializeParams) -> LspResult<InitializeResult> {
-        if let Some(root_uri) = params.root_uri {
+        let root = params
+            .workspace_folders
+            .and_then(|folders| folders.into_iter().next())
+            .map(|folder| folder.uri)
+            .or(params.root_uri);
+        if let Some(root_uri) = root {
             if let Ok(path) = root_uri.to_file_path() {
                 let _ = self.service_tx.send(Command::SetWorkspaceRoot(path));
             }
@@ -80,8 +89,16 @@ impl LanguageServer for Backend {
 
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
-                text_document_sync: Some(TextDocumentSyncCapability::Kind(
-                    TextDocumentSyncKind::INCREMENTAL,
+                position_encoding: Some(PositionEncodingKind::UTF16),
+                text_document_sync: Some(TextDocumentSyncCapability::Options(
+                    TextDocumentSyncOptions {
+                        open_close: Some(true),
+                        change: Some(TextDocumentSyncKind::INCREMENTAL),
+                        save: Some(TextDocumentSyncSaveOptions::SaveOptions(SaveOptions {
+                            include_text: Some(false),
+                        })),
+                        ..Default::default()
+                    },
                 )),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 completion_provider: Some(CompletionOptions {
@@ -91,22 +108,15 @@ impl LanguageServer for Backend {
                 }),
                 definition_provider: Some(OneOf::Left(true)),
                 references_provider: None,
-                document_symbol_provider: None,
+                document_symbol_provider: Some(OneOf::Left(true)),
                 semantic_tokens_provider: Some(
                     SemanticTokensServerCapabilities::SemanticTokensOptions(
                         SemanticTokensOptions {
                             legend: SemanticTokensLegend {
-                                token_types: vec![
-                                    SemanticTokenType::FUNCTION,
-                                    SemanticTokenType::TYPE,
-                                    SemanticTokenType::ENUM_MEMBER,
-                                    SemanticTokenType::PARAMETER,
-                                    SemanticTokenType::VARIABLE,
-                                    SemanticTokenType::NAMESPACE,
-                                    SemanticTokenType::PROPERTY,
-                                    SemanticTokenType::TYPE_PARAMETER,
-                                    SemanticTokenType::INTERFACE,
-                                ],
+                                token_types: etas_intel::SEMANTIC_TOKEN_TYPES
+                                    .iter()
+                                    .map(|name| SemanticTokenType::new(name))
+                                    .collect(),
                                 token_modifiers: vec![SemanticTokenModifier::DECLARATION],
                             },
                             full: Some(SemanticTokensFullOptions::Bool(true)),
@@ -126,7 +136,7 @@ impl LanguageServer for Backend {
             },
             server_info: Some(ServerInfo {
                 name: "etas-lsp".to_string(),
-                version: Some("0.1.0".to_string()),
+                version: Some(env!("CARGO_PKG_VERSION").to_string()),
             }),
         })
     }
@@ -283,6 +293,13 @@ impl LanguageServer for Backend {
     async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
         for change in params.changes {
             if let Ok(path) = change.uri.to_file_path() {
+                if matches!(
+                    path.file_name().and_then(|name| name.to_str()),
+                    Some("etas.toml" | "etas.lock" | "package-index.json")
+                ) {
+                    let _ = self.service_tx.send(Command::ReloadPackage);
+                    continue;
+                }
                 let path_str = path.to_string_lossy().to_string();
                 match change.typ {
                     FileChangeType::CREATED => {
@@ -326,5 +343,23 @@ impl LanguageServer for Backend {
             result_id: None,
             data,
         })))
+    }
+
+    async fn document_symbol(
+        &self,
+        params: DocumentSymbolParams,
+    ) -> LspResult<Option<DocumentSymbolResponse>> {
+        let (tx, rx) = oneshot::channel();
+        let _ = self.service_tx.send(Command::DocumentSymbols {
+            uri: params.text_document.uri.to_string(),
+            respond: tx,
+        });
+        let (symbols, text) = rx.await.unwrap_or_default();
+        Ok(Some(DocumentSymbolResponse::Nested(
+            symbols
+                .iter()
+                .map(|symbol| conversions::intel_symbol_to_lsp(symbol, &text))
+                .collect(),
+        )))
     }
 }

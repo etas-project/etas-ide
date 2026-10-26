@@ -324,8 +324,7 @@ fn explicit_import_target_symbol<'a>(
     current_part: Option<ModulePartId>,
 ) -> Option<&'a Symbol> {
     let import = snapshot.resolved_imports.imports.iter().find(|import| {
-        import.local_name == symbol.name
-            && current_part.map_or(true, |part| import.from_part == part)
+        import.local_name == symbol.name && current_part.is_none_or(|part| import.from_part == part)
     })?;
     import_target_symbol(snapshot, &import.target)
 }
@@ -337,7 +336,7 @@ fn explicit_import_is_module(
 ) -> bool {
     snapshot.resolved_imports.imports.iter().any(|import| {
         import.local_name == symbol.name
-            && current_part.map_or(true, |part| import.from_part == part)
+            && current_part.is_none_or(|part| import.from_part == part)
             && matches!(import.target, ImportTarget::Module(_))
     })
 }
