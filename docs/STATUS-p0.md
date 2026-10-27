@@ -1,6 +1,6 @@
 # Etas IDE Status
 
-Version: 0.3.2
+Version: 0.3.3
 
 Updated: 2026-10-27
 
@@ -44,12 +44,16 @@ Updated: 2026-10-27
 - Checked record constructor paths (including imported aliases and generics),
   named field initializers, shorthand values, nested records, and named enum
   payloads. Nominal record constructor names also expose their checked type hover.
+- Checked member calls for value paths, chained calls, grouped/literal receivers,
+  and repeated receiver/method names. Method-name tokens exclude the receiver and
+  arguments. Invalid calls do not become guessed functions, and partial member
+  hover no longer presents the receiver's declaration as the member's signature.
 
 ## Verification
 
-The 0.3.2 development verification includes:
+The 0.3.3 development verification includes:
 
-- Rust workspace regression tests: 64 passed, 4 compiler-blocked positive tests
+- Rust workspace regression tests: 66 passed, 4 compiler-blocked positive tests
   explicitly ignored. Metadata-only dependency import coverage uses real
   driver-generated package metadata.
 - Strict workspace Clippy and formatting checks.
@@ -59,17 +63,21 @@ The 0.3.2 development verification includes:
 - Real stdio LSP tests for initialization, Outline, lexical and semantic
   ranges, parse errors, versioned diagnostics, UTF-16 incremental edits,
   recovery, package preparation failure/reload, checked hover content/imports,
-  scoped actions, and stale-source hover rejection. All 66 real-project files
+  scoped actions, and stale-source hover rejection. All 71 real-project files
   also passed checked hover assertions with zero error diagnostics.
-- Real VS Code extension-host tests against `~/Projects/nomo`: 66 source
-  files with Outline, semantic providers, and 66 readable flow hovers, plus unsaved
+- Real VS Code extension-host tests against `~/Projects/nomo`: 71 source
+  files with Outline, semantic providers, and 71 readable flow hovers, plus unsaved
   parse-error/recovery and Unicode hover-range tests in a temporary document.
-- TextMate verification over the same 66 files: 5,873 keyword occurrences,
+- TextMate verification over the same 71 files: 6,300 keyword occurrences,
   including contextual keyword names. The reported `edit_args.es` import alias
   and its calls are asserted as functions in both LSP and VS Code tests.
 - The exact `Identity { id = id, workspace = workspace, ... }` occurrence in
   `nomo/cli/harness_checkpoint_args.es` is checked at its source position in
   both LSP and VS Code provider tests, not just by matching any `Identity` token.
+- All `.push(...)` source occurrences in that corpus are checked at their exact
+  positions through both the LSP and the real VS Code semantic provider. Dedicated
+  member-call tests cover Unicode, chains, literals, grouping, name collisions,
+  field/method distinction, invalid calls, stale-source rejection, and recovery.
 
 The project tests read source files but do not run model, network, tool, or
 runtime actions. Package loading may acquire the package manager's local
@@ -106,6 +114,12 @@ imported std Array length support, renamed source re-export callable facts, and
 metadata-only wildcard effect imports, and module-qualified nominal record
 constructors. The IDE does not synthesize semantic
 success for these cases or relax their expected behavior.
+
+Full member-method signature hover also needs public selected-method facts from
+the frontend. Checked call shape/type facts are enough to classify method names,
+but not to reconstruct a chosen overload's definition, parameter names, generic
+bindings, or effect contract. The IDE does not guess an overload or substitute
+the receiver's declaration; see the API gap in [Compiler blockers](compiler-blockers.md).
 
 Workspace symbols, references, code actions, formatting, cancellation of an
 in-flight compiler query, and simultaneous per-package sessions are not yet

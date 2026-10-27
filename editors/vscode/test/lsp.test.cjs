@@ -115,6 +115,52 @@ test('semantic tokens: std aliases, imported types/modules, wildcard calls, and 
     assert.ok(tokens.some(token => token.text === '"中文😀"' && token.kind === 'string'));
 });
 
+test('member calls: arrays, chains, name collisions, UTF-16, invalid edits, and recovery', { timeout: 120000 }, async t => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'etas-method-token-e2e-'));
+    const client = new LspClient();
+    t.after(async () => { await client.stop(); fs.rmSync(root, { recursive: true, force: true }); });
+    const initialized = await client.initialize(pathToFileURL(root).href);
+    const legend = initialized.capabilities.semanticTokensProvider.legend;
+    const uri = pathToFileURL(path.join(root, 'main.es')).href;
+    const text = 'module methods;\nalias Holder = { push: i32 };\nflow append(values: Array<string>, flag: string) -> Array<string> {\n    let push = values; let unicode = "中文😀 push"; let next = push.push(flag).push(flag);\n    let literal = ["one"].push(flag); let grouped = (values).push(flag);\n    let size = values.len(); let trimmed = flag.trim(); return next;\n}\nflow field(holder: Holder) -> i32 { return holder.push; }\nflow main() -> i32 { return 0; }\n';
+    client.notify('textDocument/didOpen', { textDocument: { uri, languageId: 'etas', version: 1, text } });
+    assert.deepEqual((await client.diagnostics(uri, 1)).filter(diag => diag.severity === 1), []);
+    async function decoded(source) {
+        const result = await client.request('textDocument/semanticTokens/full', { textDocument: { uri } });
+        return decodeTokens(result.data, legend, source);
+    }
+    const tokens = await decoded(text);
+    for (const match of text.matchAll(/\.(push|len|trim)\(/g)) {
+        const lines = text.slice(0, match.index + 1).split('\n');
+        const token = tokens.find(token => token.line === lines.length - 1 && token.character === lines.at(-1).length);
+        assert.equal(token?.text, match[1]);
+        assert.equal(token.kind, 'function');
+    }
+    assert.deepEqual(tokens.filter(token => token.text === 'push').map(token => token.kind),
+        ['property', 'variable', 'variable', 'function', 'function', 'function', 'function']);
+    const methodLines = text.slice(0, text.indexOf('.push(') + 1).split('\n');
+    const methodHover = await client.request('textDocument/hover', { textDocument: { uri }, position: {
+        line: methodLines.length - 1, character: methodLines.at(-1).length,
+    } });
+    assert.equal(methodHover, null, 'missing selected method facts must not show the receiver signature');
+    const fieldLines = text.slice(0, text.indexOf('holder.push;') + 'holder.'.length).split('\n');
+    const fieldHover = await client.request('textDocument/hover', { textDocument: { uri }, position: {
+        line: fieldLines.length - 1, character: fieldLines.at(-1).length,
+    } });
+    assert.ok(fieldHover?.contents.value.includes('push: i32'), JSON.stringify(fieldHover));
+    for (const [index, changed] of [text.replace('.push(flag)', '.missing(flag)'), text.replace('.push(flag)', '.push(42)')].entries()) {
+        client.notify('textDocument/didChange', { textDocument: { uri, version: index + 2 }, contentChanges: [{ text: changed }] });
+        assert.ok((await client.diagnostics(uri, index + 2)).some(diag => diag.severity === 1));
+        const badTokens = await decoded(changed);
+        assert.ok(!badTokens.some(token => token.kind === 'function' && token.text === 'missing'));
+        assert.ok(!badTokens.some(token => token.kind === 'function' && token.text === 'push'),
+            'a mismatched last-good snapshot must not paint method names');
+    }
+    client.notify('textDocument/didChange', { textDocument: { uri, version: 4 }, contentChanges: [{ text }] });
+    assert.deepEqual((await client.diagnostics(uri, 4)).filter(diag => diag.severity === 1), []);
+    assert.equal((await decoded(text)).filter(token => token.text === 'push' && token.kind === 'function').length, 4);
+});
+
 test('record constructors: type names, labels, values, hover, and UTF-16 ranges', { timeout: 120000 }, async t => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'etas-record-token-e2e-'));
     const client = new LspClient();
@@ -211,6 +257,12 @@ test('stdio: real project parser results, diagnostics, and highlighting', { skip
         const result = await client.request('textDocument/semanticTokens/full', { textDocument: { uri } });
         const tokens = decodeTokens(result.data, initialized.capabilities.semanticTokensProvider.legend, text);
         assert.ok(tokens.some(token => token.text === 'module' && token.kind === 'keyword'), name);
+        for (const match of text.matchAll(/\.push\(/g)) {
+            const lines = text.slice(0, match.index + 1).split('\n');
+            const token = tokens.find(token => token.line === lines.length - 1 && token.character === lines.at(-1).length);
+            assert.equal(token?.text, 'push', name + ': missing array method token');
+            assert.equal(token.kind, 'function', name + ': push must be callable');
+        }
         if (name.replaceAll(path.sep, '/') === 'nomo/cli/edit_args.es') {
             const aliases = tokens.filter(token => token.text === 'count');
             assert.ok(aliases.length >= 3, 'edit_args.es must include the alias and its calls');

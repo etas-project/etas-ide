@@ -2,6 +2,15 @@
 
 All notable changes to the "etas" extension will be documented in this file.
 
+## 0.3.3 - 2026-10-27
+
+- Highlight checked member calls such as `values.push(...)`, chained calls, and methods on grouped or literal receivers.
+- Preserve receiver variables when their names collide with method names; do not treat non-call fields as methods.
+- Reject method tokens for invalid calls and mismatched last-good source snapshots.
+- Stop showing a partial path's receiver declaration when hovering its field or method; keep checked field-type hovers.
+- Add Rust, UTF-16 LSP, and real VS Code checks for every `.push(...)` occurrence in the nomo source corpus.
+- Document that full method signatures remain blocked on public selected-method target/signature facts, without adding IDE overload resolution.
+
 ## 0.3.2 - 2026-10-27
 
 - Highlight record constructor paths such as `Identity { ... }` as types, including imported aliases and generic constructors.

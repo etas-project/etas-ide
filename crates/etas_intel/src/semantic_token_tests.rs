@@ -248,6 +248,89 @@ fn source_position(service: &LanguageService, uri: &str, needle: &str) -> LspPos
 }
 
 #[test]
+fn checked_member_calls_cover_paths_chains_and_repeated_names() {
+    let (service, uri) = checked(
+        r#"module tokens;
+alias Holder = { values: Array<string>, push: i32 };
+flow append(values: Array<string>, flag: string) -> Array<string> {
+    let push = values;
+    let unicode = "push 中文😀"; let next = push.push(flag).push(flag);
+    let literal = ["one"].push(flag);
+    let grouped = (values).push(flag);
+    let multiline = values
+        . /* push is a comment, not a method token */ push(flag);
+    let trimmed = flag.trim();
+    let size = values.len();
+    return next;
+}
+flow fields(holder: Holder) -> i32 { return holder.push; }
+flow main() -> i32 { return 0; }
+"#,
+    );
+    assert_kind(&service, &uri, "push(flag)", "function");
+    assert_kind(&service, &uri, "trim()", "function");
+    assert_kind(&service, &uri, "len()", "function");
+    assert_kind(&service, &uri, "push.push", "variable");
+    assert!(
+        service
+            .hover(&uri, source_position(&service, &uri, "push(flag)"))
+            .is_none(),
+        "the compiler does not expose a selected method signature; do not show the receiver as push"
+    );
+    let field = service
+        .hover(&uri, source_position(&service, &uri, "push; }"))
+        .expect("checked field projection hover");
+    assert!(field.text.contains("push: i32"), "{}", field.text);
+    let (tokens, text) = service.semantic_tokens(&uri);
+    let offset = text.find("push; }").unwrap();
+    assert!(
+        tokens
+            .iter()
+            .all(|token| { token.byte_start as usize != offset || token.token_type != 0 }),
+        "a non-call field named push is not a method call"
+    );
+}
+
+#[test]
+fn invalid_member_call_edits_do_not_reuse_checked_function_tokens() {
+    let source = "module tokens;\nflow append(values: Array<string>) -> Array<string> { return values.push(\"x\"); }\nflow main() -> i32 { return 0; }\n";
+    let (mut service, uri) = checked(source);
+    assert_kind(&service, &uri, "push(\"x\")", "function");
+    for (version, broken) in [
+        source.replace("push(\"x\")", "missing(\"x\")"),
+        source.replace("push(\"x\")", "push(42)"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        service.change_document(
+            uri.clone(),
+            vec![LspTextEdit {
+                range: None,
+                text: broken.clone(),
+            }],
+            version as i32 + 2,
+        );
+        service.ensure_fresh_analysis();
+        assert!(
+            service
+                .get_diagnostics()
+                .values()
+                .flatten()
+                .any(|diag| diag.severity == IntelSeverity::Error)
+        );
+        let offset = broken.find("values.").unwrap() + "values.".len();
+        let (tokens, _) = service.semantic_tokens(&uri);
+        assert!(
+            tokens
+                .iter()
+                .all(|token| token.byte_start as usize != offset || token.token_type != 0),
+            "invalid method calls must not get checked function tokens"
+        );
+    }
+}
+
+#[test]
 fn invalid_record_constructor_does_not_reuse_old_type_highlights() {
     let source = "module tokens;\ntype Identity = { id: string };\nflow main() -> i32 { let item = Identity { id = \"x\" }; return 0; }\n";
     let (mut service, uri) = checked(source);

@@ -105,3 +105,28 @@ qualified constructor independently or classify an invalid snapshot as checked.
 cargo test -p etas_intel --locked --offline \
   blocked_module_qualified_record_constructor -- --ignored --nocapture
 ```
+
+## Selected Method Signature API Gap
+
+```etas
+module methods;
+flow append(values: Array<string>, item: string) -> Array<string> {
+    return values.push(item).push(item);
+}
+flow main() -> i32 { return 0; }
+```
+
+This source checks successfully. Checked HIR call shapes and expression types
+support callable highlighting for both method names. However, public `TypeFacts`
+do not retain the selected method target/signature for these calls. In addition,
+`definition_target_for_expr` on a partial path such as `values.push` returns the
+resolved prefix (`values`), not the method. Reusing that target for member hover
+incorrectly displayed the receiver's declaration.
+
+The IDE now rejects that receiver-as-member hover and keeps checked field-type
+hover where available. Full method hover/definition requires a public per-call
+selected target and instantiated callable signature, including generic/spec
+bindings and effect/action contracts. No IDE method-name table, overload solver,
+or synthetic signature is introduced. Unlike the four compile-blocked fixtures
+above, this is an API gap after a successful check; the active Rust/LSP tests
+verify highlighting and reject misleading receiver hover.

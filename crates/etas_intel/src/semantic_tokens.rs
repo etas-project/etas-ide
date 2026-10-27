@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use etas_core::{SourceId, Span};
+use etas_core::{Severity, SourceId, Span, TextRange};
 use etas_frontend::{
     AstItemKind, HirExprPathResolution, HirPathResolution, ImportTarget, ParseOutput,
     ProjectSemanticSnapshot, ResolvedModuleTarget,
@@ -164,6 +164,61 @@ pub(crate) fn collect(
     for (id, expr) in snapshot.hir.exprs.iter() {
         if expr.span(&snapshot.hir.blocks).source != source {
             continue;
+        }
+        if matches!(expr, HirExpr::Call { .. } | HirExpr::MethodCall { .. })
+            && snapshot.types.expr_types.contains_key(&id)
+        {
+            let span = expr.span(&snapshot.hir.blocks);
+            let invalid = snapshot.diagnostics.diagnostics.iter().any(|diagnostic| {
+                let error = diagnostic.primary.span;
+                diagnostic.severity == Severity::Error
+                    && error.source == source
+                    && error.range.start < span.range.end
+                    && error.range.end > span.range.start
+            });
+            if !invalid {
+                match expr {
+                    HirExpr::Call { callee, .. } => {
+                        if let HirExpr::Path(path) = &snapshot.hir.exprs[*callee] {
+                            if let ResolveResult::PartiallyResolved(partial) = &path.resolution {
+                                let receiver = partial
+                                    .resolved_prefix
+                                    .and_then(|symbol| snapshot.symbols.get(symbol))
+                                    .and_then(|symbol| classifier.symbol(symbol));
+                                if let Some(kind @ (3 | 4 | 6)) = receiver {
+                                    if let Some(segment) = path
+                                        .segments
+                                        .get(partial.resolved_segments.saturating_sub(1) as usize)
+                                    {
+                                        tokens.push(token(segment.span, kind));
+                                    }
+                                    if let Some(segment) = path.segments.last() {
+                                        tokens.push(token(segment.span, 0));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    HirExpr::MethodCall {
+                        receiver, method, ..
+                    } => {
+                        // Exclude the receiver: it may have the same name, or
+                        // contain another call to this method in a chain.
+                        let receiver_end = snapshot.hir.exprs[*receiver]
+                            .span(&snapshot.hir.blocks)
+                            .range
+                            .end;
+                        let name_span =
+                            Span::new(source, TextRange::new(receiver_end, span.range.end));
+                        if let Some(range) =
+                            crate::syntax::identifier_range(parsed, name_span, method)
+                        {
+                            tokens.push(token(Span::new(source, range), 0));
+                        }
+                    }
+                    _ => {}
+                }
+            }
         }
         if let HirExpr::Record(record) = expr {
             let Some(ty) = snapshot.types.expr_types.get(&id) else {

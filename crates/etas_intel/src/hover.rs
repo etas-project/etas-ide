@@ -1,6 +1,7 @@
 use etas_core::{SourceId, Span, TextRange};
 use etas_frontend::{
-    DefinitionTarget, ImportTarget, ProjectSemanticSnapshot, ResolvedModuleTarget,
+    DefinitionTarget, HirPathResolution, ImportTarget, ProjectSemanticSnapshot,
+    ResolvedModuleTarget,
 };
 use etas_hir::{HirExpr, HirItem, HirType, ResolveResult, Symbol, SymbolKind};
 use etas_syntax::TokenKind;
@@ -93,10 +94,24 @@ pub(crate) fn hover(
                 return None;
             }
             let target = snapshot.definition_target_for_expr(resolved.expr);
-            let symbol = target.and_then(|target| match target {
-                DefinitionTarget::SourceSymbol { symbol, .. } => snapshot.symbols.get(*symbol),
-                DefinitionTarget::Import(target) => import_symbol(snapshot, target, name),
-            });
+            // A partial path's definition target is its receiver, not the
+            // trailing field/method. Do not show `values: Array<T>` for `push`.
+            let symbol = match &resolved.result {
+                HirPathResolution::PartialSymbol {
+                    prefix, remaining, ..
+                } if !remaining.is_empty() => {
+                    match snapshot.symbols.resolve_member(*prefix, name) {
+                        ResolveResult::Resolved(symbol) if remaining.len() == 1 => {
+                            snapshot.symbols.get(symbol)
+                        }
+                        _ => None,
+                    }
+                }
+                _ => target.and_then(|target| match target {
+                    DefinitionTarget::SourceSymbol { symbol, .. } => snapshot.symbols.get(*symbol),
+                    DefinitionTarget::Import(target) => import_symbol(snapshot, target, name),
+                }),
+            };
             if let Some(text) = symbol.and_then(|symbol| printer.symbol(symbol)) {
                 return Some(text);
             }

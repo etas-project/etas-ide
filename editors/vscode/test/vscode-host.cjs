@@ -40,6 +40,24 @@ async function run() {
             result => result && result.data.length > 0, 'tokens: ' + name);
         assert.ok(legend.tokenTypes.includes('keyword'));
         assert.equal(tokens.data.length % 5, 0);
+        const methods = Array.from(doc.getText().matchAll(/\.push\(/g), match => doc.positionAt(match.index + 1));
+        if (methods.length) {
+            await eventually(async () => {
+                const ready = await vscode.commands.executeCommand('vscode.provideDocumentSemanticTokens', uri);
+                if (!ready) return false;
+                const seen = new Set();
+                let line = 0, col = 0;
+                for (let i = 0; i < ready.data.length; i += 5) {
+                    line += ready.data[i];
+                    col = ready.data[i] ? ready.data[i + 1] : col + ready.data[i + 1];
+                    if (legend.tokenTypes[ready.data[i + 3]] === 'function'
+                        && doc.getText(new vscode.Range(line, col, line, col + ready.data[i + 2])) === 'push') {
+                        seen.add(line + ':' + col);
+                    }
+                }
+                return methods.every(position => seen.has(position.line + ':' + position.character));
+            }, result => result, name + ': every array push must reach the semantic provider');
+        }
         if (name.replaceAll(path.sep, '/') === 'nomo/main.es') {
             await eventually(
                 async () => {
