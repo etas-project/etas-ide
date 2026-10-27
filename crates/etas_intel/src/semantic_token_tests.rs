@@ -186,6 +186,149 @@ fn contextual_keyword_names_use_checked_name_spans() {
 }
 
 #[test]
+fn record_constructors_labels_and_values_have_distinct_tokens() {
+    let (service, uri) = checked(
+        r#"module tokens;
+import std.text.split;
+type Identity = { id: string, workspace: string, allowed: Array<string> };
+type Envelope = { identity: Identity };
+alias Row = { label: string };
+flow make(id: string, workspace: string, allow: string) -> Envelope {
+    let identity = Identity { id = id, workspace = workspace, allowed = split(allow, ",") };
+    let row = Row { label = id };
+    return Envelope { identity = identity };
+}
+flow main() -> i32 { return 0; }
+"#,
+    );
+    assert_kind(&service, &uri, "Identity {", "type");
+    assert_kind(&service, &uri, "Envelope {", "type");
+    assert_kind(&service, &uri, "Row {", "type");
+    assert_kind(&service, &uri, "id = id", "property");
+    assert_kind(&service, &uri, "id, workspace", "parameter");
+    assert_kind(&service, &uri, "workspace = workspace", "property");
+    assert_kind(&service, &uri, "workspace, allowed", "parameter");
+    assert_kind(&service, &uri, "identity = identity", "property");
+    assert_kind(&service, &uri, "identity };", "variable");
+    assert_kind(&service, &uri, "split(allow", "function");
+    let hover = service
+        .hover(&uri, source_position(&service, &uri, "Identity {"))
+        .expect("record constructor should expose its checked type");
+    assert!(hover.text.contains("type Identity"), "{}", hover.text);
+}
+
+#[test]
+fn generic_and_anonymous_record_construction_uses_checked_hir() {
+    let (service, uri) = checked(
+        "module tokens;\ntype Box<T> = { value: T };\nflow boxed<T>(value: T) -> Box<T> { return Box<T> { value = value }; }\nflow main() -> i32 { let plain = 1; let row = { Identity = 1 }; let other = { plain }; return row.Identity; }\n",
+    );
+    assert_kind(&service, &uri, "Box<T> {", "type");
+    assert_kind(&service, &uri, "T> {", "typeParameter");
+    assert_kind(&service, &uri, "Identity = 1", "property");
+    assert_kind(&service, &uri, "plain };", "variable");
+}
+
+#[test]
+fn named_enum_payloads_remain_enum_members_not_record_types() {
+    let (service, uri) = checked(
+        "module tokens;\nenum Event { Data { id: string }; }\nflow make(id: string) -> Event { return Event.Data { id = id }; }\nflow main() -> i32 { return 0; }\n",
+    );
+    assert_kind(&service, &uri, "Event.Data", "type");
+    assert_kind(&service, &uri, "Data {", "enumMember");
+    assert_kind(&service, &uri, "id = id", "property");
+}
+
+fn source_position(service: &LanguageService, uri: &str, needle: &str) -> LspPosition {
+    let text = &service.documents[uri].text;
+    let before = &text[..text.find(needle).expect("test cursor must exist")];
+    LspPosition {
+        line: before.bytes().filter(|byte| *byte == b'\n').count() as u32,
+        character: before.rsplit('\n').next().unwrap().encode_utf16().count() as u32,
+    }
+}
+
+#[test]
+fn invalid_record_constructor_does_not_reuse_old_type_highlights() {
+    let source = "module tokens;\ntype Identity = { id: string };\nflow main() -> i32 { let item = Identity { id = \"x\" }; return 0; }\n";
+    let (mut service, uri) = checked(source);
+    assert_kind(&service, &uri, "Identity {", "type");
+    let broken = source.replace("= Identity {", "= Missing {");
+    service.change_document(
+        uri.clone(),
+        vec![LspTextEdit {
+            range: None,
+            text: broken.clone(),
+        }],
+        2,
+    );
+    service.ensure_fresh_analysis();
+    let (tokens, _) = service.semantic_tokens(&uri);
+    let offset = broken.find("Missing {").unwrap();
+    assert!(
+        tokens
+            .iter()
+            .all(|token| token.byte_start as usize != offset)
+    );
+    assert!(
+        service
+            .hover(&uri, source_position(&service, &uri, "Missing {"))
+            .is_none()
+    );
+}
+
+#[test]
+fn imported_record_constructor_alias_is_a_type() {
+    imported_record_fixture(false);
+}
+
+#[test]
+#[ignore = "compiler blocker: module-qualified nominal record constructor is unresolved; see docs/compiler-blockers.md"]
+fn blocked_module_qualified_record_constructor() {
+    imported_record_fixture(true);
+}
+
+fn imported_record_fixture(qualified: bool) {
+    let root = std::env::temp_dir().join(format!(
+        "etas_record_imports_{}_{}",
+        std::process::id(),
+        qualified
+    ));
+    let src = root.join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(
+        src.join("models.es"),
+        "module models;\npublic type Identity = { id: string };\n",
+    )
+    .unwrap();
+    let source = if qualified {
+        "module main;\nimport models.Identity as User;\nimport models;\nflow make(id: string) -> User { return User { id = id }; }\nflow qualified(id: string) -> User { return models.Identity { id = id }; }\nflow main() -> i32 { return 0; }\n"
+    } else {
+        "module main;\nimport models.Identity as User;\nflow make(id: string) -> User { return User { id = id }; }\nflow main() -> i32 { return 0; }\n"
+    };
+    let file = src.join("main.es");
+    std::fs::write(&file, source).unwrap();
+    let uri = path_to_uri(&file);
+    let mut service = LanguageService::new();
+    service.set_workspace_root(root.clone());
+    service.open_document(uri.clone(), source.to_owned(), 1);
+    service.ensure_fresh_analysis();
+    let diagnostics = service.get_diagnostics().clone();
+    std::fs::remove_dir_all(root).unwrap();
+    assert!(
+        diagnostics
+            .values()
+            .flatten()
+            .all(|diag| diag.severity != IntelSeverity::Error),
+        "{diagnostics:?}"
+    );
+    assert_kind(&service, &uri, "User {", "type");
+    if qualified {
+        assert_kind(&service, &uri, "models.Identity {", "namespace");
+        assert_kind(&service, &uri, "Identity {", "type");
+    }
+}
+
+#[test]
 fn stale_invalid_edits_do_not_paint_unresolved_calls_as_functions() {
     let source = "module tokens;\nimport std.collections.len as count;\nflow main() -> i32 { let text = \"count\"; let n = count(\"x\"); return 0; }\n";
     let (mut service, uri) = checked(source);

@@ -20,7 +20,7 @@ function decodeTokens(data, legend, text) {
         previousEnd = col + data[i + 2];
         assert.ok(previousEnd <= lines[line].replace(/\r$/, '').length);
         assert.ok(data[i + 3] < legend.tokenTypes.length);
-        result.push({ text: lines[line].slice(col, previousEnd), kind: legend.tokenTypes[data[i + 3]] });
+        result.push({ text: lines[line].slice(col, previousEnd), kind: legend.tokenTypes[data[i + 3]], line, character: col });
     }
     return result;
 }
@@ -115,6 +115,40 @@ test('semantic tokens: std aliases, imported types/modules, wildcard calls, and 
     assert.ok(tokens.some(token => token.text === '"中文😀"' && token.kind === 'string'));
 });
 
+test('record constructors: type names, labels, values, hover, and UTF-16 ranges', { timeout: 120000 }, async t => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'etas-record-token-e2e-'));
+    const client = new LspClient();
+    t.after(async () => { await client.stop(); fs.rmSync(root, { recursive: true, force: true }); });
+    const initialized = await client.initialize(pathToFileURL(root).href);
+    const legend = initialized.capabilities.semanticTokensProvider.legend;
+    const uri = pathToFileURL(path.join(root, 'main.es')).href;
+    const text = 'module records;\nimport std.text.split;\ntype Identity = { id: string, workspace: string, allowed: Array<string> };\ntype Envelope = { identity: Identity };\nflow make(id: string, workspace: string, allow: string) -> Envelope {\n    let unicode = "中文😀"; let identity = Identity { id = id, workspace = workspace, allowed = split(allow, ",") };\n    return Envelope { identity = identity };\n}\nflow main() -> i32 { return 0; }\n';
+    client.notify('textDocument/didOpen', { textDocument: { uri, languageId: 'etas', version: 1, text } });
+    assert.deepEqual((await client.diagnostics(uri, 1)).filter(diag => diag.severity === 1), []);
+    const response = await client.request('textDocument/semanticTokens/full', { textDocument: { uri } });
+    const tokens = decodeTokens(response.data, legend, text);
+    function at(needle, kind) {
+        const offset = text.indexOf(needle);
+        assert.ok(offset >= 0);
+        const lines = text.slice(0, offset).split('\n');
+        const position = { line: lines.length - 1, character: lines.at(-1).length };
+        const token = tokens.find(token => token.line === position.line && token.character === position.character);
+        assert.equal(token?.kind, kind, needle + ': ' + JSON.stringify(token));
+        return position;
+    }
+    const constructor = at('Identity {', 'type');
+    at('Envelope {', 'type');
+    at('id = id', 'property');
+    at('id, workspace', 'parameter');
+    at('identity = identity', 'property');
+    at('identity };', 'variable');
+    at('split(allow', 'function');
+    const hover = await client.request('textDocument/hover', { textDocument: { uri }, position: constructor });
+    assert.ok(hover?.contents.value.includes('type Identity'), JSON.stringify(hover));
+    assert.deepEqual(hover.range.start, constructor);
+    assert.equal(hover.range.end.character - hover.range.start.character, 'Identity'.length);
+});
+
 test('hover: readable checked signatures, types, effects, imports, and UTF-16 ranges', { timeout: 120000 }, async t => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'etas-hover-e2e-'));
     const src = path.join(root, 'src');
@@ -185,6 +219,14 @@ test('stdio: real project parser results, diagnostics, and highlighting', { skip
         if (name.replaceAll(path.sep, '/') === 'nomo/main.es') {
             assert.ok(tokens.some(token => token.text === 'resume' && token.kind === 'function'),
                 'the real resume flow name must not remain a control keyword');
+        }
+        if (name.replaceAll(path.sep, '/') === 'nomo/cli/harness_checkpoint_args.es') {
+            const offset = text.indexOf('Identity { id = id, workspace = workspace');
+            assert.ok(offset >= 0, 'the reported constructor must be present');
+            const lines = text.slice(0, offset).split('\n');
+            const token = tokens.find(token => token.line === lines.length - 1 && token.character === lines.at(-1).length);
+            assert.equal(token?.text, 'Identity');
+            assert.equal(token.kind, 'type', 'record constructor Identity must be classified as a type');
         }
         for (const diagnostic of published) {
             assert.ok(diagnostic.range.start.line < text.split('\n').length, name);

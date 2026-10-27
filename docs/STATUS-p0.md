@@ -1,6 +1,6 @@
 # Etas IDE Status
 
-Version: 0.3.1
+Version: 0.3.2
 
 Updated: 2026-10-27
 
@@ -41,12 +41,15 @@ Updated: 2026-10-27
   shadowing. Module/type imports are not guessed to be functions. Record field
   labels, generic parameter uses, enum constructors, and action references keep
   their own token categories.
+- Checked record constructor paths (including imported aliases and generics),
+  named field initializers, shorthand values, nested records, and named enum
+  payloads. Nominal record constructor names also expose their checked type hover.
 
 ## Verification
 
-The 0.3.1 development verification includes:
+The 0.3.2 development verification includes:
 
-- Rust workspace regression tests: 59 passed, 3 compiler-blocked positive tests
+- Rust workspace regression tests: 64 passed, 4 compiler-blocked positive tests
   explicitly ignored. Metadata-only dependency import coverage uses real
   driver-generated package metadata.
 - Strict workspace Clippy and formatting checks.
@@ -64,6 +67,9 @@ The 0.3.1 development verification includes:
 - TextMate verification over the same 66 files: 5,873 keyword occurrences,
   including contextual keyword names. The reported `edit_args.es` import alias
   and its calls are asserted as functions in both LSP and VS Code tests.
+- The exact `Identity { id = id, workspace = workspace, ... }` occurrence in
+  `nomo/cli/harness_checkpoint_args.es` is checked at its source position in
+  both LSP and VS Code provider tests, not just by matching any `Identity` token.
 
 The project tests read source files but do not run model, network, tool, or
 runtime actions. Package loading may acquire the package manager's local
@@ -94,10 +100,11 @@ For the real editor gate, launch a local VS Code executable with:
 
 ## Remaining Work
 
-Three positive cases remain blocked by the linked compiler, with executable
+Four positive cases remain blocked by the linked compiler, with executable
 ignored tests and exact reproducers in [Compiler blockers](compiler-blockers.md):
 imported std Array length support, renamed source re-export callable facts, and
-metadata-only wildcard effect imports. The IDE does not synthesize semantic
+metadata-only wildcard effect imports, and module-qualified nominal record
+constructors. The IDE does not synthesize semantic
 success for these cases or relax their expected behavior.
 
 Workspace symbols, references, code actions, formatting, cancellation of an

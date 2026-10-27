@@ -61,6 +61,25 @@ pub(crate) fn hover(
     let text = declaration
         .and_then(|(_, symbol)| printer.symbol(symbol))
         .or_else(|| {
+            snapshot.hir.exprs.iter().find_map(|(id, expr)| {
+                let HirExpr::Record(record) = expr else {
+                    return None;
+                };
+                let path = record.path.as_ref()?;
+                let segment = path.segments.last()?;
+                if segment.span.source != doc.source_id
+                    || segment.span.range != range
+                    || !snapshot.types.expr_types.contains_key(&id)
+                {
+                    return None;
+                }
+                let ResolveResult::Resolved(symbol) = path.resolution else {
+                    return None;
+                };
+                printer.symbol(snapshot.symbols.get(symbol)?)
+            })
+        })
+        .or_else(|| {
             let resolved = snapshot
                 .resolved_paths
                 .expr_paths

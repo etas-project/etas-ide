@@ -2,6 +2,15 @@
 
 All notable changes to the "etas" extension will be documented in this file.
 
+## 0.3.2 - 2026-10-27
+
+- Highlight record constructor paths such as `Identity { ... }` as types, including imported aliases and generic constructors.
+- Keep named field labels, shorthand values, and nested constructor arguments in their checked categories.
+- Preserve enum-member classification for named enum payload constructors.
+- Show checked type hover on record constructor names.
+- Add exact-position LSP and VS Code regressions for the reported `harness_checkpoint_args.es` constructor, including UTF-16 offsets and stale-source rejection.
+- Record the upstream module-qualified record constructor blocker without adding an IDE resolver workaround.
+
 ## 0.3.1 - 2026-10-27
 
 - Classify standard-library imports and aliases such as `len as count` as functions at both declaration and usage sites.

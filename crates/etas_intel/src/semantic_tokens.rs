@@ -5,10 +5,12 @@ use etas_frontend::{
     AstItemKind, HirExprPathResolution, HirPathResolution, ImportTarget, ParseOutput,
     ProjectSemanticSnapshot, ResolvedModuleTarget,
 };
-use etas_hir::{HirExpr, HirItem, HirType, ResolveResult, Symbol, SymbolDef, SymbolKind};
+use etas_hir::{
+    HirExpr, HirFieldInit, HirItem, HirType, ResolveResult, Symbol, SymbolDef, SymbolKind,
+};
 use etas_std::{StdDecl, StdSymbol, StdSymbolKind, TypeDeclKind};
 use etas_syntax::ast::ImportTree;
-use etas_types::SymbolTypeFact;
+use etas_types::{SymbolTypeFact, Type, TypeId};
 
 use crate::IntelSemanticToken;
 
@@ -159,7 +161,63 @@ pub(crate) fn collect(
             _ => {}
         }
     }
-    for (_, expr) in snapshot.hir.exprs.iter() {
+    for (id, expr) in snapshot.hir.exprs.iter() {
+        if expr.span(&snapshot.hir.blocks).source != source {
+            continue;
+        }
+        if let HirExpr::Record(record) = expr {
+            let Some(ty) = snapshot.types.expr_types.get(&id) else {
+                continue;
+            };
+            let is_enum = match snapshot.type_store.get(*ty) {
+                Some(Type::Enum(_)) => true,
+                Some(Type::Applied { constructor, .. }) => matches!(
+                    snapshot.type_store.get(TypeId(constructor.0)),
+                    Some(Type::Enum(_))
+                ),
+                _ => false,
+            };
+            // Record constructor paths are not ordinary path expressions.
+            // The checked HIR identifies the name and each field's exact role.
+            if let Some(path) = &record.path {
+                for (index, segment) in path.segments.iter().enumerate() {
+                    tokens.push(token(
+                        segment.span,
+                        if index + 1 == path.segments.len() {
+                            if is_enum { 2 } else { 1 }
+                        } else if is_enum && index + 2 == path.segments.len() {
+                            1
+                        } else {
+                            5
+                        },
+                    ));
+                }
+            }
+            for field in &record.fields {
+                let (name, span, kind) = match field {
+                    HirFieldInit::Named { name, span, .. } => (name, *span, Some(6)),
+                    HirFieldInit::Shorthand {
+                        name,
+                        resolution,
+                        span,
+                    } => {
+                        let kind = match resolution {
+                            ResolveResult::Resolved(symbol) => snapshot
+                                .symbols
+                                .get(*symbol)
+                                .and_then(|symbol| classifier.symbol(symbol)),
+                            _ => None,
+                        };
+                        (name, *span, kind)
+                    }
+                };
+                if let Some(kind) = kind {
+                    if let Some(range) = crate::syntax::identifier_range(parsed, span, name) {
+                        tokens.push(token(Span::new(source, range), kind));
+                    }
+                }
+            }
+        }
         let HirExpr::Perform { action, .. } = expr else {
             continue;
         };

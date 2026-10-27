@@ -79,3 +79,29 @@ introduced.
 cargo test -p etas_intel --locked --offline \
   blocked_metadata_only_wildcard_effect_import -- --ignored --nocapture
 ```
+
+## Module-Qualified Record Constructor
+
+```etas
+// models.es
+module models;
+public type Identity = { id: string };
+
+// main.es
+module main;
+import models.Identity as User;
+import models;
+flow qualified(id: string) -> User { return models.Identity { id = id }; }
+flow main() -> i32 { return 0; }
+```
+
+Expected: the qualified constructor resolves to the imported nominal type.
+Actual: `TypeMismatch`, including `record constructor is not resolved to a type
+or named enum variant`. Direct imported alias construction `User { id = id }`
+checks and is covered by the positive IDE test. The IDE does not resolve the
+qualified constructor independently or classify an invalid snapshot as checked.
+
+```bash
+cargo test -p etas_intel --locked --offline \
+  blocked_module_qualified_record_constructor -- --ignored --nocapture
+```

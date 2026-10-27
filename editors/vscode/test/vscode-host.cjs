@@ -67,6 +67,23 @@ async function run() {
             }
             assert.ok(count >= 3, 'the real edit_args.es alias and calls must reach the provider');
         }
+        if (name.replaceAll(path.sep, '/') === 'nomo/cli/harness_checkpoint_args.es') {
+            const offset = doc.getText().indexOf('Identity { id = id, workspace = workspace');
+            assert.ok(offset >= 0, 'the reported record constructor must be present');
+            const position = doc.positionAt(offset);
+            let line = 0, col = 0, matched = false;
+            for (let i = 0; i < tokens.data.length; i += 5) {
+                line += tokens.data[i];
+                col = tokens.data[i] ? tokens.data[i + 1] : col + tokens.data[i + 1];
+                if (line !== position.line || col !== position.character) continue;
+                assert.equal(legend.tokenTypes[tokens.data[i + 3]], 'type');
+                assert.equal(doc.getText(new vscode.Range(line, col, line, col + tokens.data[i + 2])), 'Identity');
+                matched = true;
+            }
+            assert.ok(matched, 'the real Identity constructor must reach the semantic provider');
+            const hovers = await vscode.commands.executeCommand('vscode.executeHoverProvider', uri, position);
+            assert.ok(hovers.some(hover => hover.contents.some(content => content.value?.includes('type Identity'))));
+        }
         const flow = /\bflow\s+([A-Za-z_]\w*)/.exec(doc.getText());
         if (flow) {
             const position = doc.positionAt(flow.index + flow[0].lastIndexOf(flow[1]));
