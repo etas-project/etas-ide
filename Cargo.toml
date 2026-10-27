@@ -17,6 +17,7 @@ etas_lsp = { path = "crates/etas_lsp" }
 
 # Cross-repo dependencies via git (same pattern as other workspaces)
 etas_core = { git = "https://github.com/etas-project/etas-core.git", package = "etas_core" }
+etas_std = { git = "https://github.com/etas-project/etas-core.git", package = "etas_std" }
 etas_effects = { git = "https://github.com/etas-project/etas-frontend.git", package = "etas_effects" }
 etas_frontend = { git = "https://github.com/etas-project/etas-frontend.git", package = "etas_frontend" }
 etas_hir = { git = "https://github.com/etas-project/etas-frontend.git", package = "etas_hir" }

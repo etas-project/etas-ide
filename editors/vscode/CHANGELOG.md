@@ -2,6 +2,17 @@
 
 All notable changes to the "etas" extension will be documented in this file.
 
+## 0.3.1 - 2026-10-27
+
+- Classify standard-library imports and aliases such as `len as count` as functions at both declaration and usage sites.
+- Preserve target kinds for imported source types, specs, modules, and checked dependency metadata bindings.
+- Cover grouped/wildcard imports, callable references, local shadowing, and standard enum constructors.
+- Keep record field labels and generic parameter uses distinct from type names.
+- Highlight effect action declarations and perform references as functions.
+- Respect compiler-checked contextual keyword names such as `flow resume`, including hover, without repainting actual control keywords.
+- Add Rust, stdio LSP, and real VS Code regressions for the reported `nomo/cli/edit_args.es` case.
+- Record three upstream compiler blockers as explicit ignored positive tests rather than introducing IDE semantic fallbacks.
+
 ## 0.3.0 - 2026-10-26
 
 - Replace hover's internal Debug dumps with checked Etas signatures and readable types.

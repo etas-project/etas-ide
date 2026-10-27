@@ -1,5 +1,6 @@
 mod completion;
 mod hover;
+mod semantic_tokens;
 pub mod service;
 mod syntax;
 pub mod types;

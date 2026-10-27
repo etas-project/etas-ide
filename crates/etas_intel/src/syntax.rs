@@ -120,7 +120,7 @@ pub(crate) fn merge_tokens(
         .tokens
         .tokens
         .iter()
-        .filter(|token| token.kind == TokenKind::Ident)
+        .filter(|token| token.kind.is_ident_like())
         .map(|token| (token.span.range.start.0, token.span.range.end.0))
         .collect();
     let mut merged = std::collections::BTreeMap::new();
@@ -130,8 +130,12 @@ pub(crate) fn merge_tokens(
         }
     }
     for token in lexical {
-        // Lexical keyword/literal boundaries cannot be painted over by a broad
-        // HIR source origin (for example a whole declaration or type expression).
+        // A keyword can be a checked name (for example `flow resume(...)`).
+        // Only an exact compiler-provided name span may override that keyword.
+        if token.token_type == 9 && merged.contains_key(&token.byte_start) {
+            continue;
+        }
+        // Literal/comment boundaries cannot be painted over by broad origins.
         merged.insert(token.byte_start, token);
     }
     merged.into_values().collect()
@@ -298,7 +302,7 @@ pub(crate) fn identifier_range(parsed: &ParseOutput, span: Span, name: &str) -> 
         .tokens
         .iter()
         .find(|token| {
-            token.kind == TokenKind::Ident
+            token.kind.is_ident_like()
                 && token.span.range.start >= span.range.start
                 && token.span.range.end <= span.range.end
                 && &parsed.source.text()

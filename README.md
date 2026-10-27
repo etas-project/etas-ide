@@ -15,7 +15,7 @@ effect checker.
 | Hover | Checked signatures, readable types, generic/spec bounds, and effect/action summaries |
 | Go to definition, including import targets | Available |
 | Contextual completion | Available |
-| Semantic tokens | Available |
+| Semantic tokens | Checked source/std/package imports, aliases, and local bindings |
 | VS Code extension with bundled server | Available |
 | CI build and VSIX packaging | Available |
 | Find references | Not implemented |

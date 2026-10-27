@@ -61,6 +61,8 @@ test('declaration names, aliases, annotations, primitives, and spec kinds have s
     assert.match(scope('@model("test")', '@model'), /decorator/);
     assert.match(scope('i32 usize unit never', 'usize'), /storage.type.primitive/);
     assert.match(scope('import std.text.join as combine;', 'as'), /keyword/);
+    assert.match(scope('flow resume() -> i32 { return 0; }', 'resume'), /entity.name.function/);
+    assert.match(scope('flow f() { resume 0; }', 'resume'), /keyword.control.handler/);
 });
 
 test('numeric, character, Unicode, string, and comment boundaries', () => {
@@ -79,7 +81,7 @@ test('numeric, character, Unicode, string, and comment boundaries', () => {
 });
 
 const nomo = process.env.ETAS_E2E_PROJECT;
-test('all keyword occurrences in the real project receive scopes outside strings/comments', { skip: !nomo }, () => {
+test('real-project keywords and keyword-named declarations have contextual scopes', { skip: !nomo }, () => {
     let files = 0;
     let checked = 0;
     for (const file of fs.readdirSync(path.join(nomo, 'src'), { recursive: true })) {
@@ -90,7 +92,7 @@ test('all keyword occurrences in the real project receive scopes outside strings
             for (const word of token.text.match(/\b[a-z_]+\b/g) || []) {
                 if (!keywords.includes(word)) continue;
                 checked++;
-                assert.match(token.scopes.join(' '), /keyword\.|storage\.|constant\.language/, file + ':' + (token.line + 1) + ' ' + word);
+                assert.match(token.scopes.join(' '), /keyword\.|storage\.|constant\.language|entity\.name\.(?:function|type)\.etas/, file + ':' + (token.line + 1) + ' ' + word);
             }
         }
     }

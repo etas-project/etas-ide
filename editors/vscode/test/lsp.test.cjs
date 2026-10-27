@@ -94,6 +94,27 @@ test('package preparation failures are published and recover after manifest chan
     assert.ok(!recovered.some(diag => diag.code === 'package::PrepareFailed'), JSON.stringify(recovered));
 });
 
+test('semantic tokens: std aliases, imported types/modules, wildcard calls, and shadowing', { timeout: 120000 }, async t => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'etas-import-token-e2e-'));
+    const client = new LspClient();
+    t.after(async () => { await client.stop(); fs.rmSync(root, { recursive: true, force: true }); });
+    const initialized = await client.initialize(pathToFileURL(root).href);
+    const legend = initialized.capabilities.semanticTokensProvider.legend;
+    const uri = pathToFileURL(path.join(root, 'main.es')).href;
+    const text = 'module tokens;\nimport std.collections.len as count;\nimport std.collections.Array as Seq;\nimport std.text as text_ops;\nimport std.text.*;\nalias Row<T> = { value: T, count: i32 };\nflow parse(args: Array<string>, seq: Seq<string>) -> usize {\n    let text = "中文😀"; let n = count(args);\n    if true { let count = n; let value = count; }\n    let length = len(text);\n    return count(args);\n}\nflow main() -> i32 { return 0; }\n';
+    client.notify('textDocument/didOpen', { textDocument: { uri, languageId: 'etas', version: 1, text } });
+    assert.deepEqual((await client.diagnostics(uri, 1)).filter(diag => diag.severity === 1), []);
+    const response = await client.request('textDocument/semanticTokens/full', { textDocument: { uri } });
+    const tokens = decodeTokens(response.data, legend, text);
+    assert.deepEqual(tokens.filter(token => token.text === 'count').map(token => token.kind),
+        ['function', 'property', 'function', 'variable', 'variable', 'function']);
+    assert.deepEqual(tokens.filter(token => token.text === 'Seq').map(token => token.kind), ['type', 'type']);
+    assert.deepEqual(tokens.filter(token => token.text === 'text_ops').map(token => token.kind), ['namespace']);
+    assert.ok(tokens.some(token => token.text === 'len' && token.kind === 'function'));
+    assert.ok(tokens.some(token => token.text === 'T' && token.kind === 'typeParameter'));
+    assert.ok(tokens.some(token => token.text === '"中文😀"' && token.kind === 'string'));
+});
+
 test('hover: readable checked signatures, types, effects, imports, and UTF-16 ranges', { timeout: 120000 }, async t => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'etas-hover-e2e-'));
     const src = path.join(root, 'src');
@@ -152,10 +173,19 @@ test('stdio: real project parser results, diagnostics, and highlighting', { skip
         client.notify('textDocument/didOpen', { textDocument: { uri, languageId: 'etas', version: 1, text } });
         const symbols = await client.request('textDocument/documentSymbol', { textDocument: { uri } });
         assert.ok(symbols.length > 0, name + ': missing parser outline');
+        const published = await client.diagnostics(uri, 1);
         const result = await client.request('textDocument/semanticTokens/full', { textDocument: { uri } });
         const tokens = decodeTokens(result.data, initialized.capabilities.semanticTokensProvider.legend, text);
         assert.ok(tokens.some(token => token.text === 'module' && token.kind === 'keyword'), name);
-        const published = await client.diagnostics(uri, 1);
+        if (name.replaceAll(path.sep, '/') === 'nomo/cli/edit_args.es') {
+            const aliases = tokens.filter(token => token.text === 'count');
+            assert.ok(aliases.length >= 3, 'edit_args.es must include the alias and its calls');
+            assert.ok(aliases.every(token => token.kind === 'function'), JSON.stringify(aliases));
+        }
+        if (name.replaceAll(path.sep, '/') === 'nomo/main.es') {
+            assert.ok(tokens.some(token => token.text === 'resume' && token.kind === 'function'),
+                'the real resume flow name must not remain a control keyword');
+        }
         for (const diagnostic of published) {
             assert.ok(diagnostic.range.start.line < text.split('\n').length, name);
             if (diagnostic.severity === 1) diagnostics++;

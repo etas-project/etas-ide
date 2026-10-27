@@ -10,7 +10,7 @@ use etas_frontend::{
     ProjectSemanticSnapshot, ProjectSessionId, ResolvedModuleTarget, SnapshotDetailLevel,
     SourceChange, SourceInput, SourceKind, SourceVersion,
 };
-use etas_hir::{HirNodeRef, HirType, ResolveResult, SymbolKind, SyntaxNodeRef};
+use etas_hir::{HirNodeRef, HirType, ResolveResult, SyntaxNodeRef};
 
 use crate::types::completion::{CompletionItem, CompletionParams};
 use crate::types::diagnostic::IntelDiagnostic;
@@ -1498,166 +1498,13 @@ impl LanguageService {
         if source_text != doc.text {
             return (lexical, doc.text.clone());
         }
-        let mut tokens: Vec<IntelSemanticToken> = Vec::new();
-
-        // 1. Definition sites from symbol_sources
-        for (sym_id, origin) in &snapshot.source_map.symbol_sources {
-            let span = origin.span();
-            if span.source != source_id {
-                continue;
-            }
-            let Some(sym) = snapshot.symbols.get(*sym_id) else {
-                continue;
-            };
-            let Some(ty) = semantic_token_type_for_kind(sym.kind) else {
-                continue;
-            };
-            let m = if is_semantic_declaration(sym.kind) {
-                1u32
-            } else {
-                0u32
-            };
-            let Some(range) = crate::syntax::identifier_range(&parsed, span, &sym.name) else {
-                continue;
-            };
-            tokens.push(IntelSemanticToken {
-                byte_start: range.start.0,
-                byte_end: range.end.0,
-                token_type: ty,
-                modifier_bits: m,
-            });
-        }
-
-        // 2. Usage sites from expr_sources via resolved_paths
-        for resolved in &snapshot.resolved_paths.expr_paths {
-            let Some(origin) = snapshot.source_map.expr_sources.get(&resolved.expr) else {
-                continue;
-            };
-            let span = origin.span();
-            if span.source != source_id {
-                continue;
-            }
-
-            let sym_id = match &resolved.result {
-                etas_frontend::HirPathResolution::DirectSymbol(sym_id) => Some(*sym_id),
-                etas_frontend::HirPathResolution::ExplicitImport { target }
-                | etas_frontend::HirPathResolution::PartialImport { target, .. } => match target {
-                    ImportTarget::SourceItem { item, .. } => snapshot
-                        .symbols
-                        .iter()
-                        .find(|s| {
-                            s.definition_span.source == item.span.source
-                                && s.definition_span.range.start.0 >= item.span.range.start.0
-                                && s.definition_span.range.end.0 <= item.span.range.end.0
-                        })
-                        .map(|s| s.id),
-                    _ => None,
-                },
-                etas_frontend::HirPathResolution::WildcardImport {
-                    target: ResolvedModuleTarget::Source { module, .. },
-                } => {
-                    let name = resolved
-                        .path
-                        .segments
-                        .last()
-                        .map(|s| s.name.as_str())
-                        .unwrap_or("");
-                    snapshot
-                        .modules
-                        .modules
-                        .get(*module)
-                        .and_then(|m| m.visibility_exports.items.get(name))
-                        .and_then(|export| {
-                            snapshot
-                                .symbols
-                                .iter()
-                                .find(|s| {
-                                    s.definition_span.source == export.item.span.source
-                                        && s.definition_span.range.start.0
-                                            >= export.item.span.range.start.0
-                                        && s.definition_span.range.end.0
-                                            <= export.item.span.range.end.0
-                                })
-                                .map(|s| s.id)
-                        })
-                }
-                _ => None,
-            };
-            let Some(sym_id) = sym_id else { continue };
-            let Some(sym) = snapshot.symbols.get(sym_id) else {
-                continue;
-            };
-            let Some(ty) = semantic_token_type_for_kind(sym.kind) else {
-                continue;
-            };
-            let Some(segment) = resolved.path.segments.last() else {
-                continue;
-            };
-            tokens.push(IntelSemanticToken {
-                byte_start: segment.span.range.start.0,
-                byte_end: segment.span.range.end.0,
-                token_type: ty,
-                modifier_bits: 0,
-            });
-        }
-
-        // 3. Type annotations from type_sources
-        for origin in snapshot.source_map.type_sources.values() {
-            let span = origin.span();
-            if span.source != source_id {
-                continue;
-            }
-            for token in &parsed.parsed.tokens.tokens {
-                if token.kind == etas_syntax::TokenKind::Ident
-                    && token.span.range.start >= span.range.start
-                    && token.span.range.end <= span.range.end
-                {
-                    tokens.push(IntelSemanticToken {
-                        byte_start: token.span.range.start.0,
-                        byte_end: token.span.range.end.0,
-                        token_type: 1,
-                        modifier_bits: 0,
-                    });
-                }
-            }
-        }
+        let tokens = crate::semantic_tokens::collect(snapshot, source_id, &parsed);
 
         (
             crate::syntax::merge_tokens(&parsed, lexical, tokens),
             source_text,
         )
     }
-}
-
-fn semantic_token_type_for_kind(kind: SymbolKind) -> Option<u32> {
-    match kind {
-        SymbolKind::Flow | SymbolKind::Tool | SymbolKind::Agent | SymbolKind::Import => Some(0),
-        SymbolKind::TypeAlias | SymbolKind::Type | SymbolKind::Enum | SymbolKind::Spec => Some(1),
-        SymbolKind::EnumVariant => Some(2),
-        SymbolKind::Param => Some(3),
-        SymbolKind::Local | SymbolKind::TopLevelLet => Some(4),
-        SymbolKind::Module => Some(5),
-        SymbolKind::Field => Some(6),
-        SymbolKind::TypeParam => Some(7),
-        SymbolKind::Effect | SymbolKind::EffectAction => Some(8),
-        _ => None,
-    }
-}
-
-fn is_semantic_declaration(kind: SymbolKind) -> bool {
-    matches!(
-        kind,
-        SymbolKind::Flow
-            | SymbolKind::Type
-            | SymbolKind::TypeAlias
-            | SymbolKind::Enum
-            | SymbolKind::Spec
-            | SymbolKind::Module
-            | SymbolKind::Effect
-            | SymbolKind::Tool
-            | SymbolKind::Agent
-            | SymbolKind::Protocol
-    )
 }
 
 pub(crate) fn offset_of_position(text: &str, pos: LspPosition) -> usize {
@@ -2033,3 +1880,7 @@ pub fn spawn_service() -> tokio::sync::mpsc::UnboundedSender<Command> {
 #[cfg(test)]
 #[path = "service_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "semantic_token_tests.rs"]
+mod semantic_token_tests;

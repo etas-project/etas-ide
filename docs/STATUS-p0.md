@@ -1,8 +1,8 @@
 # Etas IDE Status
 
-Version: 0.3.0
+Version: 0.3.1
 
-Updated: 2026-10-26
+Updated: 2026-10-27
 
 ## Implemented
 
@@ -36,12 +36,19 @@ Updated: 2026-10-26
 - Identifier/token-only UTF-16 hover ranges. Mismatched last-good source facts
   are not attached to edited identifiers. Open requested-action rows are marked
   unresolved rather than presented as empty/pure.
+- Metadata-aware semantic token classification for standard/source/package
+  imports, aliases, grouped/wildcard imports, callable references, and local
+  shadowing. Module/type imports are not guessed to be functions. Record field
+  labels, generic parameter uses, enum constructors, and action references keep
+  their own token categories.
 
 ## Verification
 
-The 0.3.0 development verification includes:
+The 0.3.1 development verification includes:
 
-- `cargo test --workspace --locked --offline`: 51 tests passed.
+- Rust workspace regression tests: 59 passed, 3 compiler-blocked positive tests
+  explicitly ignored. Metadata-only dependency import coverage uses real
+  driver-generated package metadata.
 - Strict workspace Clippy and formatting checks.
 - Extension TypeScript compile and esbuild bundle.
 - TextMate tests with VS Code's tokenizer and Oniguruma; the keyword list is
@@ -49,12 +56,14 @@ The 0.3.0 development verification includes:
 - Real stdio LSP tests for initialization, Outline, lexical and semantic
   ranges, parse errors, versioned diagnostics, UTF-16 incremental edits,
   recovery, package preparation failure/reload, checked hover content/imports,
-  scoped actions, and stale-source hover rejection. All 52 real-project files
+  scoped actions, and stale-source hover rejection. All 66 real-project files
   also passed checked hover assertions with zero error diagnostics.
-- Real VS Code extension-host tests against `~/Projects/nomo`: 52 source
-  files with Outline, semantic providers, and 52 readable flow hovers, plus unsaved
+- Real VS Code extension-host tests against `~/Projects/nomo`: 66 source
+  files with Outline, semantic providers, and 66 readable flow hovers, plus unsaved
   parse-error/recovery and Unicode hover-range tests in a temporary document.
-- TextMate verification over the same 52 files: 4,565 keyword occurrences.
+- TextMate verification over the same 66 files: 5,873 keyword occurrences,
+  including contextual keyword names. The reported `edit_args.es` import alias
+  and its calls are asserted as functions in both LSP and VS Code tests.
 
 The project tests read source files but do not run model, network, tool, or
 runtime actions. Package loading may acquire the package manager's local
@@ -84,6 +93,12 @@ For the real editor gate, launch a local VS Code executable with:
 - optional `ETAS_E2E_RESULT` for a JSON success/failure report
 
 ## Remaining Work
+
+Three positive cases remain blocked by the linked compiler, with executable
+ignored tests and exact reproducers in [Compiler blockers](compiler-blockers.md):
+imported std Array length support, renamed source re-export callable facts, and
+metadata-only wildcard effect imports. The IDE does not synthesize semantic
+success for these cases or relax their expected behavior.
 
 Workspace symbols, references, code actions, formatting, cancellation of an
 in-flight compiler query, and simultaneous per-package sessions are not yet

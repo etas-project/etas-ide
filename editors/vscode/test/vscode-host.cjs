@@ -40,6 +40,33 @@ async function run() {
             result => result && result.data.length > 0, 'tokens: ' + name);
         assert.ok(legend.tokenTypes.includes('keyword'));
         assert.equal(tokens.data.length % 5, 0);
+        if (name.replaceAll(path.sep, '/') === 'nomo/main.es') {
+            await eventually(
+                async () => {
+                    const ready = await vscode.commands.executeCommand('vscode.provideDocumentSemanticTokens', uri);
+                    if (!ready) return false;
+                    let line = 0, col = 0;
+                    for (let i = 0; i < ready.data.length; i += 5) {
+                        line += ready.data[i];
+                        col = ready.data[i] ? ready.data[i + 1] : col + ready.data[i + 1];
+                        if (doc.getText(new vscode.Range(line, col, line, col + ready.data[i + 2])) === 'resume'
+                            && legend.tokenTypes[ready.data[i + 3]] === 'function') return true;
+                    }
+                    return false;
+                }, result => result, 'checked resume name after initial semantic refresh');
+        }
+        if (name.replaceAll(path.sep, '/') === 'nomo/cli/edit_args.es') {
+            let line = 0, col = 0, count = 0;
+            for (let i = 0; i < tokens.data.length; i += 5) {
+                line += tokens.data[i];
+                col = tokens.data[i] ? tokens.data[i + 1] : col + tokens.data[i + 1];
+                const word = doc.getText(new vscode.Range(line, col, line, col + tokens.data[i + 2]));
+                if (word !== 'count') continue;
+                assert.equal(legend.tokenTypes[tokens.data[i + 3]], 'function', 'count must keep its imported callable classification');
+                count++;
+            }
+            assert.ok(count >= 3, 'the real edit_args.es alias and calls must reach the provider');
+        }
         const flow = /\bflow\s+([A-Za-z_]\w*)/.exec(doc.getText());
         if (flow) {
             const position = doc.positionAt(flow.index + flow[0].lastIndexOf(flow[1]));

@@ -327,7 +327,7 @@ dependencies = [
 
 [[package]]
 name = "etas_intel"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "blake3",
  "etas_core",
@@ -336,6 +336,7 @@ dependencies = [
  "etas_frontend",
  "etas_hir",
  "etas_package",
+ "etas_std",
  "etas_syntax",
  "etas_types",
  "serde",
@@ -346,7 +347,7 @@ dependencies = [
 
 [[package]]
 name = "etas_lsp"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "etas_core",
  "etas_intel",

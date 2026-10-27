@@ -1,6 +1,6 @@
 [package]
 name = "etas_intel"
-version = "0.3.0"
+version = "0.3.1"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -8,6 +8,7 @@ repository.workspace = true
 
 [dependencies]
 etas_core.workspace = true
+etas_std.workspace = true
 etas_driver.workspace = true
 etas_effects.workspace = true
 etas_frontend.workspace = true

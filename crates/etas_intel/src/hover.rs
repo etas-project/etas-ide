@@ -29,14 +29,12 @@ pub(crate) fn hover(
     let token = parsed.parsed.tokens.tokens.iter().find(|token| {
         (token.span.range.start.0 as usize..token.span.range.end.0 as usize).contains(&offset)
     })?;
-    if !matches!(
-        token.kind,
-        TokenKind::Ident
-            | TokenKind::IntLit
-            | TokenKind::FloatLit
-            | TokenKind::StringLit
-            | TokenKind::CharLit
-    ) {
+    if !token.kind.is_ident_like()
+        && !matches!(
+            token.kind,
+            TokenKind::IntLit | TokenKind::FloatLit | TokenKind::StringLit | TokenKind::CharLit
+        )
+    {
         return None;
     }
     let range = token.span.range;
@@ -54,7 +52,8 @@ pub(crate) fn hover(
             let span = origin.span();
             let symbol = snapshot.symbols.get(*id)?;
             (span.source == doc.source_id
-                && crate::syntax::identifier_range(&parsed, span, &symbol.name) == Some(range))
+                && crate::syntax::identifier_range(&parsed, symbol.definition_span, &symbol.name)
+                    == Some(range))
             .then_some((span.range.end.0 - span.range.start.0, symbol))
         })
         .min_by_key(|(len, _)| *len);
@@ -154,7 +153,7 @@ pub(crate) fn hover(
                 Some(HirExpr::Field { field, .. }) if field == name => {
                     Some(code(&format!("{field}: {ty}")))
                 }
-                _ if token.kind != TokenKind::Ident => Some(code(&ty)),
+                _ if !token.kind.is_ident_like() => Some(code(&ty)),
                 _ => None,
             }
         })?;

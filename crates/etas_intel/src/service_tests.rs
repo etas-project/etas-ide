@@ -2115,9 +2115,20 @@ flow main() -> i32 {
 
 #[test]
 fn test_lsp_refreshes_external_package_effect_facts_after_prepare() {
+    external_package_effect_facts_fixture(false);
+}
+
+#[test]
+#[ignore = "compiler blocker: metadata-only wildcard effect import is unresolved; see docs/compiler-blockers.md"]
+fn blocked_metadata_only_wildcard_effect_import() {
+    external_package_effect_facts_fixture(true);
+}
+
+fn external_package_effect_facts_fixture(wildcard_effect: bool) {
     let root = std::env::temp_dir().join(format!(
-        "etas_lsp_test_external_effect_facts_{}",
-        std::process::id()
+        "etas_lsp_test_external_effect_facts_{}_{}",
+        std::process::id(),
+        wildcard_effect
     ));
     let src_dir = root.join("src");
     let dep_src_dir = root.join("deps/remote-api/src/remote");
@@ -2216,6 +2227,101 @@ flow main() -> i32 ![Remote.request] {
     .unwrap();
     let environment =
         etas_driver::package_env::frontend_environment(prepared.environment.clone()).unwrap();
+
+    // Exercise real generated package metadata without adding dependency source
+    // overlays, so the classifier must consume ExternalItem/binding facts.
+    let cases = if wildcard_effect {
+        vec![(
+            app_source.replace("import remote.api.{Remote, fetch};", "import remote.api.*;"),
+            "fetch(",
+        )]
+    } else {
+        vec![
+            (app_source.to_owned(), "fetch("),
+            (
+                app_source
+                    .replace(
+                        "import remote.api.{Remote, fetch};",
+                        "import remote.api.{Remote, fetch as request};",
+                    )
+                    .replace("fetch(\"", "request(\""),
+                "request(",
+            ),
+            (
+                app_source.replace(
+                    "import remote.api.{Remote, fetch};",
+                    "import remote.api.Remote;\nimport remote.api.*;",
+                ),
+                "fetch(",
+            ),
+        ]
+    };
+    for (source_text, callee) in cases {
+        let source = SourceInput {
+            id: SourceId(1),
+            path: Some(app_path.clone()),
+            text: source_text.clone(),
+            kind: SourceKind::SourceProjectFile,
+        };
+        let mut input = ProjectInput::single_source(source);
+        input.environment = environment.clone();
+        input.options.entry_policy = EntryPolicy::CompileOnly;
+        let mut metadata_session = FrontendSession::new();
+        let project = metadata_session.open_project(input);
+        let result = metadata_session
+            .check(
+                project,
+                CheckRequest {
+                    snapshot_detail: SnapshotDetailLevel::Full,
+                    ..CheckRequest::default()
+                },
+            )
+            .unwrap();
+        assert!(
+            result.output.diagnostics.is_empty(),
+            "{:?}",
+            result.output.diagnostics
+        );
+        let snapshot = result
+            .snapshot
+            .expect("metadata-only check should produce a snapshot");
+        assert!(
+            snapshot
+                .resolved_paths
+                .expr_paths
+                .iter()
+                .any(|path| matches!(
+                    &path.result,
+                    etas_frontend::HirPathResolution::ExplicitImport {
+                        target: ImportTarget::ExternalItem { .. }
+                    } | etas_frontend::HirPathResolution::WildcardImport {
+                        target: ResolvedModuleTarget::External { .. }
+                    }
+                )),
+            "test must exercise metadata-only import targets"
+        );
+        super::semantic_token_tests::assert_snapshot_kind(
+            &snapshot,
+            SourceId(1),
+            &source_text,
+            callee,
+            "function",
+        );
+        if source_text.contains("Remote,") {
+            super::semantic_token_tests::assert_snapshot_kind(
+                &snapshot,
+                SourceId(1),
+                &source_text,
+                "Remote,",
+                "interface",
+            );
+        }
+        assert_eq!(
+            snapshot.sources.files.len(),
+            1,
+            "metadata-only check must not load dependency sources"
+        );
+    }
 
     let app_uri = format!("file://{}", app_path.display());
     let mut service = LanguageService::new();
