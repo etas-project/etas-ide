@@ -1,3 +1,4 @@
+mod analysis;
 mod completion;
 mod hover;
 mod semantic_tokens;
@@ -5,6 +6,7 @@ pub mod service;
 mod syntax;
 pub mod types;
 
+pub use analysis::{AnalysisPhase, AnalysisStatus};
 pub use service::{
     Command, Event, HoverResult, IntelSemanticToken, LspPosition, LspRange, LspTextEdit,
     spawn_service, spawn_service_with_events,

@@ -1,19 +1,27 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{RwLock, mpsc, oneshot};
 
 use etas_core::SourceId;
-use etas_intel::{Command, Event, LspPosition, LspRange, LspTextEdit};
+use etas_intel::{AnalysisStatus, Command, Event, LspPosition, LspRange, LspTextEdit};
 
 use crate::conversions;
 
 pub struct Backend {
     client: Client,
     service_tx: mpsc::UnboundedSender<Command>,
+    analysis_status: Arc<RwLock<AnalysisStatus>>,
+}
+
+enum AnalysisStatusNotification {}
+impl notification::Notification for AnalysisStatusNotification {
+    type Params = AnalysisStatus;
+    const METHOD: &'static str = "etas/analysisStatus";
 }
 
 impl Backend {
@@ -21,9 +29,17 @@ impl Backend {
         let (service_tx, mut event_rx) = etas_intel::spawn_service_with_events();
 
         let pump_client = client.clone();
+        let analysis_status = Arc::new(RwLock::new(AnalysisStatus::default()));
+        let pump_status = analysis_status.clone();
         tokio::spawn(async move {
             while let Some(event) = event_rx.recv().await {
                 match event {
+                    Event::AnalysisStatus(status) => {
+                        *pump_status.write().await = status.clone();
+                        pump_client
+                            .send_notification::<AnalysisStatusNotification>(status)
+                            .await;
+                    }
                     Event::DiagnosticsUpdated {
                         diagnostics,
                         source_texts,
@@ -37,7 +53,15 @@ impl Backend {
             }
         });
 
-        Self { client, service_tx }
+        Self {
+            client,
+            service_tx,
+            analysis_status,
+        }
+    }
+
+    pub async fn analysis_status(&self) -> LspResult<AnalysisStatus> {
+        Ok(self.analysis_status.read().await.clone())
     }
 }
 
@@ -89,6 +113,15 @@ impl LanguageServer for Backend {
 
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
+                experimental: Some(serde_json::json!({
+                    "etasBuild": {
+                        "server": env!("CARGO_PKG_VERSION"),
+                        "frontend": { "version": env!("ETAS_FRONTEND_VERSION"), "revision": env!("ETAS_FRONTEND_REVISION") },
+                        "core": { "version": env!("ETAS_CORE_VERSION"), "revision": env!("ETAS_CORE_REVISION") },
+                        "driver": { "version": env!("ETAS_DRIVER_VERSION"), "revision": env!("ETAS_DRIVER_REVISION") }
+                    },
+                    "etasAnalysisStatus": true
+                })),
                 position_encoding: Some(PositionEncodingKind::UTF16),
                 text_document_sync: Some(TextDocumentSyncCapability::Options(
                     TextDocumentSyncOptions {

@@ -25,6 +25,52 @@ function decodeTokens(data, legend, text) {
     return result;
 }
 
+async function analysisStatus(client, accept) {
+    const deadline = Date.now() + 120000;
+    while (Date.now() < deadline) {
+        if (client.failure) throw client.failure;
+        const latest = client.notifications.findLast(message => message.method === 'etas/analysisStatus')?.params;
+        if (latest && accept(latest)) return latest;
+        await new Promise(resolve => setTimeout(resolve, 25));
+    }
+    throw new Error('analysis status timeout: ' + JSON.stringify(client.notifications.filter(message => message.method === 'etas/analysisStatus')));
+}
+
+test('current compiler: agent-scoped infer, build identity, and analysis status lifecycle', { timeout: 120000 }, async t => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'etas-infer-status-e2e-'));
+    const client = new LspClient();
+    t.after(async () => { await client.stop(); fs.rmSync(root, { recursive: true, force: true }); });
+    const initialized = await client.initialize(pathToFileURL(root).href);
+    const build = initialized.capabilities.experimental.etasBuild;
+    assert.equal(build.server, '0.3.4');
+    assert.equal(build.frontend.revision, '21c1cd88cf35bbe4d886734c637c6ed60ce74654');
+    assert.equal(build.core.revision, '4946c9f9222bffaa8de3ae3ab9f77e508e600d35');
+    assert.equal((await client.request('etas/analysisStatus')).phase, 'idle');
+    const uri = pathToFileURL(path.join(root, 'main.es')).href;
+    const text = 'module agents;\nagent Probe(input: string) -> string { return perform infer<string>(Prompt.new().system(Trusted("Echo the input")).data(input)); }\nflow main() -> i32 { return 0; }\n';
+    client.notify('textDocument/didOpen', { textDocument: { uri, languageId: 'etas', version: 1, text } });
+    assert.deepEqual((await client.diagnostics(uri, 1)).filter(diag => diag.severity === 1), []);
+    const ready = await analysisStatus(client, status => status.phase === 'ready');
+    assert.equal(ready.errors, 0);
+    assert.equal(typeof ready.elapsedMs, 'number');
+    assert.ok(ready.files >= 1);
+    assert.equal((await client.request('etas/analysisStatus')).sequence, ready.sequence);
+    const tokens = await client.request('textDocument/semanticTokens/full', { textDocument: { uri } });
+    assert.ok(decodeTokens(tokens.data, initialized.capabilities.semanticTokensProvider.legend, text).some(token => token.text === 'infer' && token.kind === 'keyword'));
+    const unscoped = text.replace('agent Probe', 'flow Probe');
+    client.notify('textDocument/didChange', { textDocument: { uri, version: 2 }, contentChanges: [{ text: unscoped }] });
+    const errors = (await client.diagnostics(uri, 2)).filter(diag => diag.severity === 1);
+    assert.ok(errors.some(diag => diag.message.includes('agent')), JSON.stringify(errors));
+    assert.ok(!errors.some(diag => diag.message.includes('expected effect action path')), JSON.stringify(errors));
+    assert.ok((await analysisStatus(client, status => status.phase === 'ready' && status.errors > 0)).errors > 0);
+    client.notify('textDocument/didChange', { textDocument: { uri, version: 3 }, contentChanges: [{ text }] });
+    assert.deepEqual((await client.diagnostics(uri, 3)).filter(diag => diag.severity === 1), []);
+    await analysisStatus(client, status => status.phase === 'ready' && status.errors === 0);
+    const statuses = client.notifications.filter(message => message.method === 'etas/analysisStatus').map(message => message.params);
+    for (const phase of ['checking', 'queued', 'ready']) assert.ok(statuses.some(status => status.phase === phase), phase);
+    assert.ok(statuses.every((status, i) => i === 0 || status.sequence > statuses[i - 1].sequence));
+});
+
 test('stdio: parse diagnostics, outline, UTF-16 tokens, edits, and recovery', { timeout: 120000 }, async t => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'etas-lsp-e2e-'));
     const client = new LspClient();
@@ -83,6 +129,9 @@ test('package preparation failures are published and recover after manifest chan
     client.notify('textDocument/didOpen', { textDocument: { uri, languageId: 'etas', version: 1, text } });
     const diagnostics = await client.diagnostics(uri, 1);
     assert.ok(diagnostics.some(diag => diag.code === 'package::PrepareFailed'));
+    const failed = await analysisStatus(client, status => status.phase === 'failed');
+    assert.ok(failed.message);
+    assert.ok(client.notifications.some(message => message.method === 'etas/analysisStatus' && message.params.phase === 'preparing'));
     const symbols = await client.request('textDocument/documentSymbol', { textDocument: { uri } });
     assert.equal(symbols[0].children[0].name, 'main');
     const tokens = await client.request('textDocument/semanticTokens/full', { textDocument: { uri } });
@@ -92,6 +141,7 @@ test('package preparation failures are published and recover after manifest chan
     client.notify('workspace/didChangeWatchedFiles', { changes: [{ uri: pathToFileURL(manifest).href, type: 3 }] });
     const recovered = await client.diagnostics(uri, 1);
     assert.ok(!recovered.some(diag => diag.code === 'package::PrepareFailed'), JSON.stringify(recovered));
+    await analysisStatus(client, status => status.phase === 'ready' && status.errors === 0);
 });
 
 test('semantic tokens: std aliases, imported types/modules, wildcard calls, and shadowing', { timeout: 120000 }, async t => {
@@ -142,7 +192,7 @@ test('member calls: arrays, chains, name collisions, UTF-16, invalid edits, and 
     const methodHover = await client.request('textDocument/hover', { textDocument: { uri }, position: {
         line: methodLines.length - 1, character: methodLines.at(-1).length,
     } });
-    assert.equal(methodHover, null, 'missing selected method facts must not show the receiver signature');
+    assert.equal(methodHover, null, 'Array.push still lacks selected method facts; do not show its receiver');
     const fieldLines = text.slice(0, text.indexOf('holder.push;') + 'holder.'.length).split('\n');
     const fieldHover = await client.request('textDocument/hover', { textDocument: { uri }, position: {
         line: fieldLines.length - 1, character: fieldLines.at(-1).length,
@@ -225,7 +275,7 @@ test('hover: readable checked signatures, types, effects, imports, and UTF-16 ra
     assert.equal(square.range.end.character - square.range.start.character, 'square'.length);
     await hover('answer;', 'let answer: i32');
     await hover('trim(text)', 'flow trim(string) -> string');
-    const fetch = await hover('fetch<R', 'flow fetch<R ~ Region>(key: string) -> string ![Store.read<R>]');
+    const fetch = await hover('fetch<R', 'flow fetch<R ~ Region>(key: string) -> string ![main.Store.read<R>]');
     assert.ok(fetch.contents.value.includes('Requested actions:'), fetch.contents.value);
     assert.equal(fetch.contents.value.match(/Store\.read<R>/g).length, 2);
     const broken = text.replace('return answer;', 'return missing;');

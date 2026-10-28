@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, TryRecvError};
+use std::time::Instant;
 
 use etas_core::{SourceId, TextSize};
 use etas_frontend::{
@@ -15,6 +16,7 @@ use etas_hir::{HirNodeRef, HirType, ResolveResult, SyntaxNodeRef};
 use crate::types::completion::{CompletionItem, CompletionParams};
 use crate::types::diagnostic::IntelDiagnostic;
 use crate::types::location::IntelLocation;
+use crate::{AnalysisPhase, AnalysisStatus, IntelSeverity};
 
 struct ProjectFile {
     path: PathBuf,
@@ -118,6 +120,7 @@ pub enum Command {
 }
 
 pub enum Event {
+    AnalysisStatus(AnalysisStatus),
     DiagnosticsUpdated {
         diagnostics: HashMap<String, Vec<IntelDiagnostic>>,
         source_texts: HashMap<SourceId, String>,
@@ -158,6 +161,7 @@ struct LanguageService {
     analysis_stale: bool,
     timer_tx: Option<Sender<()>>,
     event_tx: Option<tokio::sync::mpsc::UnboundedSender<Event>>,
+    analysis_status: AnalysisStatus,
 }
 
 impl LanguageService {
@@ -181,11 +185,47 @@ impl LanguageService {
             analysis_stale: false,
             timer_tx: None,
             event_tx: None,
+            analysis_status: AnalysisStatus::default(),
         }
     }
 
     fn set_workspace_root(&mut self, path: PathBuf) {
         self.workspace_root = Some(canonical_or_original(path));
+    }
+
+    fn publish_analysis(
+        &mut self,
+        phase: AnalysisPhase,
+        elapsed_ms: Option<u64>,
+        message: Option<String>,
+    ) {
+        let diagnostics = self.diagnostics.values().flatten().collect::<Vec<_>>();
+        let mut status = AnalysisStatus {
+            sequence: self.analysis_status.sequence,
+            phase,
+            project_root: self
+                .workspace_root
+                .as_ref()
+                .map(|path| path.display().to_string()),
+            elapsed_ms,
+            files: self.project_files.len().max(self.documents.len()),
+            errors: diagnostics
+                .iter()
+                .filter(|diag| diag.severity == IntelSeverity::Error)
+                .count(),
+            warnings: diagnostics
+                .iter()
+                .filter(|diag| diag.severity == IntelSeverity::Warning)
+                .count(),
+            message,
+        };
+        if self.analysis_status != status {
+            status.sequence += 1;
+            if let Some(tx) = &self.event_tx {
+                let _ = tx.send(Event::AnalysisStatus(status.clone()));
+            }
+            self.analysis_status = status;
+        }
     }
 
     /// Discover .es files under src/ — only records paths, no content reading.
@@ -380,6 +420,7 @@ impl LanguageService {
         self.pending_changes.push(source_change);
         self.source_versions.insert(source_id, new_version);
         self.analysis_stale = true;
+        self.publish_analysis(AnalysisPhase::Queued, None, None);
         if let Some(timer_tx) = &self.timer_tx {
             let _ = timer_tx.send(());
         } else {
@@ -589,6 +630,7 @@ impl LanguageService {
             source_root,
             options: ProjectCompileOptions {
                 entry_policy: EntryPolicy::CompileOnly,
+                ..Default::default()
             },
             environment,
             sources,
@@ -800,6 +842,7 @@ impl LanguageService {
             return;
         };
         self.workspace_root = Some(canonical_or_original(root.clone()));
+        self.publish_analysis(AnalysisPhase::Preparing, None, None);
 
         let (tx, rx) = std::sync::mpsc::channel();
         let prepare_root = root.clone();
@@ -856,6 +899,7 @@ impl LanguageService {
             }
             Err(TryRecvError::Disconnected) => {
                 tracing::warn!("package prepare worker disconnected");
+                self.package_error = Some("package prepare worker disconnected".to_owned());
                 false
             }
         }
@@ -888,6 +932,7 @@ impl LanguageService {
             }
             Err(RecvTimeoutError::Disconnected) => {
                 tracing::warn!("package prepare worker disconnected");
+                self.package_error = Some("package prepare worker disconnected".to_owned());
                 false
             }
         }
@@ -913,6 +958,9 @@ impl LanguageService {
             }
         };
 
+        let started = Instant::now();
+        self.publish_analysis(AnalysisPhase::Checking, None, None);
+
         let changes = std::mem::take(&mut self.pending_changes);
 
         if !changes.is_empty() {
@@ -937,6 +985,11 @@ impl LanguageService {
                 }
                 Err(e) => {
                     tracing::error!("apply_changes failed: {e:?}");
+                    self.publish_analysis(
+                        AnalysisPhase::Failed,
+                        Some(started.elapsed().as_millis() as u64),
+                        Some(format!("Applying source changes failed: {e:?}")),
+                    );
                     return;
                 }
             }
@@ -999,9 +1052,19 @@ impl LanguageService {
                         versions,
                     });
                 }
+                self.publish_analysis(
+                    AnalysisPhase::Ready,
+                    Some(started.elapsed().as_millis() as u64),
+                    None,
+                );
             }
             Err(e) => {
                 tracing::error!("check failed: {e:?}");
+                self.publish_analysis(
+                    AnalysisPhase::Failed,
+                    Some(started.elapsed().as_millis() as u64),
+                    Some(format!("Analysis failed: {e:?}")),
+                );
             }
         }
     }
@@ -1052,6 +1115,7 @@ impl LanguageService {
             diagnostics.insert(doc.uri.clone(), items);
         }
         self.diagnostics = diagnostics;
+        self.publish_analysis(AnalysisPhase::Failed, None, self.package_error.clone());
         if let Some(event_tx) = &self.event_tx {
             let _ = event_tx.send(Event::DiagnosticsUpdated {
                 diagnostics: self.diagnostics.clone(),
@@ -1329,7 +1393,7 @@ impl LanguageService {
             .iter()
             .find(|resolved| span_contains_offset(resolved.path.span, source_id, offset))
             .and_then(|resolved| match &resolved.result {
-                etas_frontend::HirPathResolution::WildcardImport { target } => {
+                etas_frontend::HirPathResolution::WildcardImport { target, .. } => {
                     self.resolve_module_export(target, segment, snapshot)
                 }
                 etas_frontend::HirPathResolution::AmbiguousWildcard { targets } => {

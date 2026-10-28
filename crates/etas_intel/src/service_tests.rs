@@ -216,7 +216,7 @@ fn test_hover_effect_contract_and_requested_actions() {
     assert_checked(&tx, uri, source);
     let result = assert_hover(
         hover_at(&tx, uri, source, "fetch<R"),
-        "flow fetch<R ~ Region>(key: string) -> string ![Store.read<R>]",
+        "flow fetch<R ~ Region>(key: string) -> string ![hover.Store.read<R>]",
     );
     assert!(
         result.text.contains("Requested actions:"),
@@ -234,7 +234,7 @@ fn test_hover_effect_contract_and_requested_actions() {
 fn test_hover_tool_agent_and_function_value() {
     let tx = spawn_service();
     let uri = "file:///hover_callables.es";
-    let source = "module hover;\ntool echo(value: string) -> string ![] { return value; }\nagent Greeter(input: string) -> string {}\nflow square(x: i32) -> i32 ![] { return x * x; }\nflow main() -> i32 { let callback = square; return callback(2); }\n";
+    let source = "module hover;\ntool echo(value: string) -> string ![] { return value; }\nagent Greeter(input: string) -> string { return perform infer<string>(Prompt.new().system(Trusted(\"Echo the input\")).data(input)); }\nflow square(x: i32) -> i32 ![] { return x * x; }\nflow main() -> i32 { let callback = square; return callback(2); }\n";
     assert_checked(&tx, uri, source);
     assert_hover(
         hover_at(&tx, uri, source, "echo(value"),
@@ -561,7 +561,7 @@ fn test_completion_maps_additional_top_level_symbol_kinds() {
 
 type Draft = string;
 
-agent Greeter(input: Draft) -> Draft {}
+agent Greeter(input: Draft) -> Draft { return input; }
 
 tool normalize(input: string) -> string {
     return "ok";
@@ -2295,7 +2295,8 @@ flow main() -> i32 ![Remote.request] {
                     etas_frontend::HirPathResolution::ExplicitImport {
                         target: ImportTarget::ExternalItem { .. }
                     } | etas_frontend::HirPathResolution::WildcardImport {
-                        target: ResolvedModuleTarget::External { .. }
+                        target: ResolvedModuleTarget::External { .. },
+                        ..
                     }
                 )),
             "test must exercise metadata-only import targets"
@@ -2479,4 +2480,62 @@ flow main() -> i32 ![] {
         "nested example should activate its own package and resolve edk.http dependency, got: {:?}",
         locations
     );
+}
+#[test]
+fn test_analysis_status_reports_real_check_stages_and_counts() {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut service = LanguageService::new();
+    service.event_tx = Some(tx);
+    let uri = "file:///analysis_status.es".to_owned();
+    let source = "module status; flow main() -> i32 { return 0; }";
+    service.open_document(uri.clone(), source.to_owned(), 1);
+    let mut statuses = Vec::new();
+    while let Ok(event) = rx.try_recv() {
+        if let Event::AnalysisStatus(status) = event {
+            statuses.push(status);
+        }
+    }
+    assert!(
+        statuses
+            .iter()
+            .any(|status| status.phase == AnalysisPhase::Checking)
+    );
+    let ready = statuses.last().unwrap();
+    assert_eq!(ready.phase, AnalysisPhase::Ready);
+    assert_eq!((ready.errors, ready.warnings), (0, 0));
+    assert!(ready.elapsed_ms.is_some());
+    assert!(ready.files >= 1);
+    assert!(
+        statuses
+            .windows(2)
+            .all(|pair| pair[0].sequence < pair[1].sequence)
+    );
+    let (timer, _receiver) = std::sync::mpsc::channel();
+    service.timer_tx = Some(timer);
+    service.change_document(
+        uri,
+        vec![LspTextEdit {
+            range: None,
+            text: source.replace("return 0;", "let bad = ; return 0;"),
+        }],
+        2,
+    );
+    assert_eq!(service.analysis_status.phase, AnalysisPhase::Queued);
+    service.ensure_fresh_analysis();
+    assert_eq!(service.analysis_status.phase, AnalysisPhase::Ready);
+    assert!(
+        service.analysis_status.errors > 0,
+        "a completed check with source errors is not a server failure"
+    );
+}
+
+#[test]
+fn test_analysis_status_deduplicates_identical_reports() {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut service = LanguageService::new();
+    service.event_tx = Some(tx);
+    service.publish_analysis(AnalysisPhase::Checking, None, None);
+    service.publish_analysis(AnalysisPhase::Checking, None, None);
+    assert!(matches!(rx.try_recv(), Ok(Event::AnalysisStatus(_))));
+    assert!(rx.try_recv().is_err());
 }

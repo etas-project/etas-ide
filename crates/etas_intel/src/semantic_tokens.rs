@@ -21,6 +21,16 @@ pub(crate) fn collect(
 ) -> Vec<IntelSemanticToken> {
     let classifier = Classifier::new(snapshot, source);
     let mut tokens = Vec::new();
+    for expr in snapshot.types.agent_inferences.keys() {
+        let Some(HirExpr::Infer { span, .. }) = snapshot.hir.exprs.get(*expr) else {
+            continue;
+        };
+        if span.source == source {
+            if let Some(range) = crate::syntax::identifier_range(parsed, *span, "infer") {
+                tokens.push(token(Span::new(source, range), 9));
+            }
+        }
+    }
     for (id, origin) in &snapshot.source_map.symbol_sources {
         let span = origin.span();
         if span.source != source {
@@ -298,6 +308,39 @@ fn token(span: Span, kind: u32) -> IntelSemanticToken {
     }
 }
 
+pub(crate) fn member_name_span(
+    snapshot: &ProjectSemanticSnapshot,
+    expr: etas_hir::HirExprId,
+    parsed: &ParseOutput,
+) -> Option<Span> {
+    match snapshot.hir.exprs.get(expr)? {
+        HirExpr::Call { callee, .. } => {
+            let HirExpr::Path(path) = snapshot.hir.exprs.get(*callee)? else {
+                return None;
+            };
+            (path.segments.len() > 1).then(|| path.segments.last().unwrap().span)
+        }
+        HirExpr::MethodCall {
+            receiver,
+            method,
+            span,
+            ..
+        } => {
+            let receiver_end = snapshot.hir.exprs[*receiver]
+                .span(&snapshot.hir.blocks)
+                .range
+                .end;
+            crate::syntax::identifier_range(
+                parsed,
+                Span::new(span.source, TextRange::new(receiver_end, span.range.end)),
+                method,
+            )
+            .map(|range| Span::new(span.source, range))
+        }
+        _ => None,
+    }
+}
+
 struct Classifier<'a> {
     snapshot: &'a ProjectSemanticSnapshot,
     source: SourceId,
@@ -411,7 +454,7 @@ impl<'a> Classifier<'a> {
         match &resolved.result {
             HirPathResolution::DirectSymbol(id) => self.symbol(self.snapshot.symbols.get(*id)?),
             HirPathResolution::ExplicitImport { target } => self.target(target),
-            HirPathResolution::WildcardImport { target } => {
+            HirPathResolution::WildcardImport { target, .. } => {
                 self.export(target, &resolved.path.segments.last()?.name)
             }
             HirPathResolution::PartialImport {

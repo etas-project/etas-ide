@@ -15,6 +15,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "ambient-authority"
+version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e9d4ee0d472d1cd2e28c97dfa124b3d8d992e10eb0a035f33f5d12e3a177ba3b"
+
+[[package]]
 name = "anyhow"
 version = "1.0.104"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -135,6 +141,48 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
+name = "cap-fs-ext"
+version = "3.4.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "476f0d0003a760918ed4b1e039a59e11769030416f79c8222551d22785f7f70d"
+dependencies = [
+ "cap-primitives",
+ "cap-std",
+ "io-lifetimes",
+ "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "cap-primitives"
+version = "3.4.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e0bf07d379916947be6c4a07f43684153d710a2896c31f9e97781362895596c"
+dependencies = [
+ "ambient-authority",
+ "fs-set-times",
+ "io-extras",
+ "io-lifetimes",
+ "ipnet",
+ "maybe-owned",
+ "rustix",
+ "rustix-linux-procfs",
+ "windows-sys 0.52.0",
+ "winx",
+]
+
+[[package]]
+name = "cap-std"
+version = "3.4.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a59e59fa26472d29680ece6a9f8ee8b0551a719a33df2f5240bde065ecbddfd7"
+dependencies = [
+ "cap-primitives",
+ "io-extras",
+ "io-lifetimes",
+ "rustix",
+]
+
+[[package]]
 name = "cc"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -167,6 +215,16 @@ dependencies = [
  "cfg-if",
  "cpufeatures",
  "rand_core",
+]
+
+[[package]]
+name = "close_fds"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3bc416f33de9d59e79e57560f450d21ff8393adcf1cdfc3e6d8fb93d5f88a2ed"
+dependencies = [
+ "cfg-if",
+ "libc",
 ]
 
 [[package]]
@@ -215,6 +273,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "91622ff5e7162018101f2fea40d6ebf4a78bbe5a49736a2020649edf9693679e"
 
 [[package]]
+name = "enumflags2"
+version = "0.7.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1027f7680c853e056ebcec683615fb6fbbc07dbaa13b4d5d9442b146ded4ecef"
+dependencies = [
+ "enumflags2_derive",
+]
+
+[[package]]
+name = "enumflags2_derive"
+version = "0.7.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "67c78a4d8fdf9953a5c9d458f9efe940fd97a0cab0941c075a813ac594733827"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -233,32 +311,49 @@ dependencies = [
 [[package]]
 name = "etas_cache"
 version = "0.1.0"
-source = "git+https://github.com/etas-project/etas-core.git#56c50906e31acc7b4ee2e0ac858582684c013256"
+source = "git+https://github.com/etas-project/etas-core.git?rev=4946c9f9222bffaa8de3ae3ab9f77e508e600d35#4946c9f9222bffaa8de3ae3ab9f77e508e600d35"
 dependencies = [
  "blake3",
+ "etas_core",
  "rusqlite",
  "zstd",
 ]
 
 [[package]]
+name = "etas_code"
+version = "0.1.0"
+source = "git+https://github.com/etas-project/etas-core.git?rev=4946c9f9222bffaa8de3ae3ab9f77e508e600d35#4946c9f9222bffaa8de3ae3ab9f77e508e600d35"
+dependencies = [
+ "blake3",
+ "etas_core",
+ "etas_utils",
+ "serde",
+]
+
+[[package]]
 name = "etas_core"
 version = "0.1.0"
-source = "git+https://github.com/etas-project/etas-core.git#56c50906e31acc7b4ee2e0ac858582684c013256"
+source = "git+https://github.com/etas-project/etas-core.git?rev=4946c9f9222bffaa8de3ae3ab9f77e508e600d35#4946c9f9222bffaa8de3ae3ab9f77e508e600d35"
 dependencies = [
+ "etas_memory_derive",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
 name = "etas_driver"
 version = "0.1.0"
-source = "git+https://github.com/etas-project/etas.git#767ea6ab8b19fed412a6057922fc1d81fa4077c1"
+source = "git+https://github.com/etas-project/etas.git?rev=b7e20625d4b8f18cfe77156afc9518fa22951d25#b7e20625d4b8f18cfe77156afc9518fa22951d25"
 dependencies = [
  "blake3",
+ "etas_code",
  "etas_core",
  "etas_effects",
  "etas_frontend",
  "etas_hir",
+ "etas_host",
  "etas_package",
+ "etas_package_metadata",
  "etas_std",
  "etas_syntax",
  "etas_types",
@@ -270,11 +365,13 @@ dependencies = [
 [[package]]
 name = "etas_effects"
 version = "0.1.0"
-source = "git+https://github.com/etas-project/etas-frontend.git#f908b216a6ef37f445ccda800bb7041e76323db6"
+source = "git+https://github.com/etas-project/etas-frontend.git?rev=21c1cd88cf35bbe4d886734c637c6ed60ce74654#21c1cd88cf35bbe4d886734c637c6ed60ce74654"
 dependencies = [
+ "etas_code",
  "etas_core",
  "etas_hir",
  "etas_hir_analysis",
+ "etas_package_metadata",
  "etas_std",
  "etas_types",
  "etas_utils",
@@ -284,11 +381,12 @@ dependencies = [
 [[package]]
 name = "etas_frontend"
 version = "0.1.0"
-source = "git+https://github.com/etas-project/etas-frontend.git#f908b216a6ef37f445ccda800bb7041e76323db6"
+source = "git+https://github.com/etas-project/etas-frontend.git?rev=21c1cd88cf35bbe4d886734c637c6ed60ce74654#21c1cd88cf35bbe4d886734c637c6ed60ce74654"
 dependencies = [
  "bincode",
  "blake3",
  "etas_cache",
+ "etas_code",
  "etas_core",
  "etas_effects",
  "etas_hir",
@@ -307,7 +405,7 @@ dependencies = [
 [[package]]
 name = "etas_hir"
 version = "0.1.0"
-source = "git+https://github.com/etas-project/etas-frontend.git#f908b216a6ef37f445ccda800bb7041e76323db6"
+source = "git+https://github.com/etas-project/etas-frontend.git?rev=21c1cd88cf35bbe4d886734c637c6ed60ce74654#21c1cd88cf35bbe4d886734c637c6ed60ce74654"
 dependencies = [
  "etas_core",
  "etas_std",
@@ -318,7 +416,7 @@ dependencies = [
 [[package]]
 name = "etas_hir_analysis"
 version = "0.1.0"
-source = "git+https://github.com/etas-project/etas-frontend.git#f908b216a6ef37f445ccda800bb7041e76323db6"
+source = "git+https://github.com/etas-project/etas-frontend.git?rev=21c1cd88cf35bbe4d886734c637c6ed60ce74654#21c1cd88cf35bbe4d886734c637c6ed60ce74654"
 dependencies = [
  "etas_core",
  "etas_hir",
@@ -326,8 +424,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "etas_host"
+version = "0.1.0"
+source = "git+https://github.com/etas-project/etas-core.git?rev=4946c9f9222bffaa8de3ae3ab9f77e508e600d35#4946c9f9222bffaa8de3ae3ab9f77e508e600d35"
+dependencies = [
+ "blake3",
+ "cap-fs-ext",
+ "cap-std",
+ "close_fds",
+ "etas_code",
+ "etas_core",
+ "etas_std",
+ "getrandom 0.3.4",
+ "landlock",
+ "libc",
+ "reqwest",
+ "rusqlite",
+ "rustls",
+ "rustls-pki-types",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-rustls",
+ "tokio-util",
+ "webpki-roots",
+]
+
+[[package]]
 name = "etas_intel"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "blake3",
  "etas_core",
@@ -347,24 +472,35 @@ dependencies = [
 
 [[package]]
 name = "etas_lsp"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "etas_core",
  "etas_intel",
  "serde",
  "serde_json",
  "tokio",
+ "toml",
  "tower-lsp",
  "tracing",
  "tracing-subscriber",
 ]
 
 [[package]]
+name = "etas_memory_derive"
+version = "0.1.0"
+source = "git+https://github.com/etas-project/etas-core.git?rev=4946c9f9222bffaa8de3ae3ab9f77e508e600d35#4946c9f9222bffaa8de3ae3ab9f77e508e600d35"
+dependencies = [
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "etas_package"
 version = "0.1.0"
-source = "git+https://github.com/etas-project/etas.git#767ea6ab8b19fed412a6057922fc1d81fa4077c1"
+source = "git+https://github.com/etas-project/etas.git?rev=b7e20625d4b8f18cfe77156afc9518fa22951d25#b7e20625d4b8f18cfe77156afc9518fa22951d25"
 dependencies = [
  "blake3",
+ "etas_code",
  "etas_package_metadata",
  "etas_std",
  "getrandom 0.3.4",
@@ -381,17 +517,20 @@ dependencies = [
 [[package]]
 name = "etas_package_metadata"
 version = "0.1.0"
-source = "git+https://github.com/etas-project/etas-core.git#56c50906e31acc7b4ee2e0ac858582684c013256"
+source = "git+https://github.com/etas-project/etas-core.git?rev=4946c9f9222bffaa8de3ae3ab9f77e508e600d35#4946c9f9222bffaa8de3ae3ab9f77e508e600d35"
 dependencies = [
  "blake3",
+ "etas_code",
+ "etas_core",
  "prost",
+ "serde",
  "zstd",
 ]
 
 [[package]]
 name = "etas_std"
 version = "0.1.0"
-source = "git+https://github.com/etas-project/etas-core.git#56c50906e31acc7b4ee2e0ac858582684c013256"
+source = "git+https://github.com/etas-project/etas-core.git?rev=4946c9f9222bffaa8de3ae3ab9f77e508e600d35#4946c9f9222bffaa8de3ae3ab9f77e508e600d35"
 dependencies = [
  "etas_core",
 ]
@@ -399,20 +538,33 @@ dependencies = [
 [[package]]
 name = "etas_syntax"
 version = "0.1.0"
-source = "git+https://github.com/etas-project/etas-frontend.git#f908b216a6ef37f445ccda800bb7041e76323db6"
+source = "git+https://github.com/etas-project/etas-frontend.git?rev=21c1cd88cf35bbe4d886734c637c6ed60ce74654#21c1cd88cf35bbe4d886734c637c6ed60ce74654"
 dependencies = [
  "ariadne",
  "etas_core",
+ "etas_syntax_derive",
+]
+
+[[package]]
+name = "etas_syntax_derive"
+version = "0.1.0"
+source = "git+https://github.com/etas-project/etas-frontend.git?rev=21c1cd88cf35bbe4d886734c637c6ed60ce74654#21c1cd88cf35bbe4d886734c637c6ed60ce74654"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]
 name = "etas_types"
 version = "0.1.0"
-source = "git+https://github.com/etas-project/etas-frontend.git#f908b216a6ef37f445ccda800bb7041e76323db6"
+source = "git+https://github.com/etas-project/etas-frontend.git?rev=21c1cd88cf35bbe4d886734c637c6ed60ce74654#21c1cd88cf35bbe4d886734c637c6ed60ce74654"
 dependencies = [
  "blake3",
+ "etas_code",
  "etas_core",
  "etas_hir",
+ "etas_package_metadata",
  "etas_std",
  "etas_utils",
  "serde",
@@ -421,7 +573,7 @@ dependencies = [
 [[package]]
 name = "etas_utils"
 version = "0.1.0"
-source = "git+https://github.com/etas-project/etas-core.git#56c50906e31acc7b4ee2e0ac858582684c013256"
+source = "git+https://github.com/etas-project/etas-core.git?rev=4946c9f9222bffaa8de3ae3ab9f77e508e600d35#4946c9f9222bffaa8de3ae3ab9f77e508e600d35"
 dependencies = [
  "etas_core",
  "serde",
@@ -453,6 +605,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
 dependencies = [
  "percent-encoding",
+]
+
+[[package]]
+name = "fs-set-times"
+version = "0.20.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "94e7099f6313ecacbe1256e8ff9d617b75d1bcb16a6fddef94866d225a01a14a"
+dependencies = [
+ "io-lifetimes",
+ "rustix",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -805,6 +968,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "io-extras"
+version = "0.18.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2285ddfe3054097ef4b2fe909ef8c3bcd1ea52a8f0d274416caebeef39f04a65"
+dependencies = [
+ "io-lifetimes",
+ "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "io-lifetimes"
+version = "2.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "06432fb54d3be7964ecd3649233cddf80db2832f47fec34c01f65b3d9d774983"
+
+[[package]]
 name = "ipnet"
 version = "2.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -847,6 +1026,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "landlock"
+version = "0.4.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4cca98e95f35b29d469dade6724c6f96cec9236640f745a0e99b0334ec320ab1"
+dependencies = [
+ "enumflags2",
+ "libc",
+ "thiserror",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -868,6 +1058,12 @@ dependencies = [
  "pkg-config",
  "vcpkg",
 ]
+
+[[package]]
+name = "linux-raw-sys"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32a66949e030da00e8c7d4434b251670a91556f4144941d37452769c25d58a53"
 
 [[package]]
 name = "litemap"
@@ -908,6 +1104,12 @@ dependencies = [
  "serde_repr",
  "url",
 ]
+
+[[package]]
+name = "maybe-owned"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4facc753ae494aeb6e3c22f839b158aebd4f9270f55cd3c79906c45476c47ab4"
 
 [[package]]
 name = "memchr"
@@ -1228,6 +1430,29 @@ name = "rustc-hash"
 version = "2.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6b1e7f9a428571be2dc5bc0505c13fb6bf936822b894ec87abf8a08a4e51742d"
+
+[[package]]
+name = "rustix"
+version = "1.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e5e76742e5294153d4dde1207dbec5bdd81eef6fabdc0d2118babadabfd858aa"
+dependencies = [
+ "bitflags 2.13.1",
+ "errno",
+ "libc",
+ "linux-raw-sys",
+ "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "rustix-linux-procfs"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2fc84bf7e9aa16c4f2c758f27412dc9841341e16aa682d9c7ac308fe3ee12056"
+dependencies = [
+ "once_cell",
+ "rustix",
+]
 
 [[package]]
 name = "rustls"
@@ -1565,6 +1790,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "futures-util",
  "libc",
  "pin-project-lite",
  "tokio",
@@ -2033,6 +2259,16 @@ name = "winnow"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23b97319f7b8343df12cc98938e5c3eb436064524c8d2b4e30a1d3a36eecdf81"
+
+[[package]]
+name = "winx"
+version = "0.36.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f3fd376f71958b862e7afb20cfe5a22830e1963462f3a17f49d82a6c1d1f42d"
+dependencies = [
+ "bitflags 2.13.1",
+ "windows-sys 0.52.0",
+]
 
 [[package]]
 name = "wit-bindgen"

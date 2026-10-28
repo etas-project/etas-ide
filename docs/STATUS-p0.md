@@ -1,10 +1,20 @@
 # Etas IDE Status
 
-Version: 0.3.3
+Version: 0.3.4
 
-Updated: 2026-10-27
+Updated: 2026-10-28
 
 ## Implemented
+
+- The release pins frontend `21c1cd88`, core/std `4946c9f9`, and driver
+  `b7e20625`, matching the current published CLI producer set. Agent-scoped
+  `perform infer<T>(...)` uses checked inference facts; unscoped flow inference
+  still fails. No source rewrite or diagnostic suppression is used.
+- An Etas-only status bar displays actual queued/package/checking/ready/failed
+  events, elapsed check time, source count, and diagnostics. Its tooltip includes
+  Cargo.lock-derived producer revisions, extension/server versions, project, and
+  server path; clicking provides output-log and restart commands. Initial status
+  sync cannot overwrite newer notifications, and restart clears stale state.
 
 - VS Code TextMate grammar covering every keyword in the linked compiler's
   `Keyword::from_ident` table, declarations, annotations, primitive types,
@@ -51,9 +61,9 @@ Updated: 2026-10-27
 
 ## Verification
 
-The 0.3.3 development verification includes:
+The 0.3.4 development verification includes:
 
-- Rust workspace regression tests: 66 passed, 4 compiler-blocked positive tests
+- Rust workspace regression tests: 73 passed, 2 compiler-blocked positive tests
   explicitly ignored. Metadata-only dependency import coverage uses real
   driver-generated package metadata.
 - Strict workspace Clippy and formatting checks.
@@ -63,12 +73,12 @@ The 0.3.3 development verification includes:
 - Real stdio LSP tests for initialization, Outline, lexical and semantic
   ranges, parse errors, versioned diagnostics, UTF-16 incremental edits,
   recovery, package preparation failure/reload, checked hover content/imports,
-  scoped actions, and stale-source hover rejection. All 71 real-project files
+  scoped actions, and stale-source hover rejection. All 92 real-project files
   also passed checked hover assertions with zero error diagnostics.
-- Real VS Code extension-host tests against `~/Projects/nomo`: 71 source
-  files with Outline, semantic providers, and 71 readable flow hovers, plus unsaved
+- Real VS Code extension-host tests against `~/Projects/nomo`: 92 source
+  files with Outline, semantic providers, and 92 readable flow hovers, plus unsaved
   parse-error/recovery and Unicode hover-range tests in a temporary document.
-- TextMate verification over the same 71 files: 6,300 keyword occurrences,
+- TextMate verification over the same 92 files: 8,843 keyword occurrences,
   including contextual keyword names. The reported `edit_args.es` import alias
   and its calls are asserted as functions in both LSP and VS Code tests.
 - The exact `Identity { id = id, workspace = workspace, ... }` occurrence in
@@ -78,6 +88,9 @@ The 0.3.3 development verification includes:
   positions through both the LSP and the real VS Code semantic provider. Dedicated
   member-call tests cover Unicode, chains, literals, grouping, name collisions,
   field/method distinction, invalid calls, stale-source rejection, and recovery.
+- Agent-scoped inference, outside-agent rejection, compiler build identity,
+  analysis notifications/status queries, phase ordering, diagnostic counts,
+  dependency loading failure and recovery, status-bar visibility and restart.
 
 The project tests read source files but do not run model, network, tool, or
 runtime actions. Package loading may acquire the package manager's local
@@ -108,18 +121,17 @@ For the real editor gate, launch a local VS Code executable with:
 
 ## Remaining Work
 
-Four positive cases remain blocked by the linked compiler, with executable
+Two positive cases remain blocked by the linked compiler, with executable
 ignored tests and exact reproducers in [Compiler blockers](compiler-blockers.md):
-imported std Array length support, renamed source re-export callable facts, and
-metadata-only wildcard effect imports, and module-qualified nominal record
-constructors. The IDE does not synthesize semantic
+renamed source re-export effect facts and metadata-only wildcard effect imports.
+Imported Array length and qualified nominal constructors now pass as ordinary
+regressions. The IDE does not synthesize semantic
 success for these cases or relax their expected behavior.
 
-Full member-method signature hover also needs public selected-method facts from
-the frontend. Checked call shape/type facts are enough to classify method names,
-but not to reconstruct a chosen overload's definition, parameter names, generic
-bindings, or effect contract. The IDE does not guess an overload or substitute
-the receiver's declaration; see the API gap in [Compiler blockers](compiler-blockers.md).
+Public selected standard-method facts now supply signature hover where present
+(including checked reflection methods). They do not cover ordinary Array.push;
+its full signature remains blocked. The IDE does not guess an overload or
+substitute the receiver's declaration; see [Compiler blockers](compiler-blockers.md).
 
 Workspace symbols, references, code actions, formatting, cancellation of an
 in-flight compiler query, and simultaneous per-package sessions are not yet

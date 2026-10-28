@@ -62,6 +62,41 @@ pub(crate) fn hover(
     let text = declaration
         .and_then(|(_, symbol)| printer.symbol(symbol))
         .or_else(|| {
+            snapshot
+                .types
+                .std_method_calls
+                .iter()
+                .find_map(|(expr, fact)| {
+                    let span = crate::semantic_tokens::member_name_span(snapshot, *expr, &parsed)?;
+                    if span.source != doc.source_id || span.range != range {
+                        return None;
+                    }
+                    let Type::Function(signature) = snapshot.type_store.get(fact.signature)? else {
+                        return None;
+                    };
+                    let mut text = code(&printer.callable(
+                        "flow",
+                        &fact.qualified_path.join("."),
+                        &CallableSignature {
+                            generic_params: vec![],
+                            params: signature.input.clone(),
+                            output: signature.output,
+                            effects: signature.effects.clone(),
+                            requested_actions: None,
+                        },
+                        &[],
+                    ));
+                    if let Some(symbol) =
+                        snapshot.std_registry.lookup_qualified(&fact.qualified_path)
+                    {
+                        if !symbol.docs.summary.is_empty() {
+                            text.push_str(&format!("\n\n{}", symbol.docs.summary));
+                        }
+                    }
+                    Some(text)
+                })
+        })
+        .or_else(|| {
             snapshot.hir.exprs.iter().find_map(|(id, expr)| {
                 let HirExpr::Record(record) = expr else {
                     return None;
@@ -263,22 +298,21 @@ impl Printer<'_> {
             .defining_item
             .and_then(|id| snapshot.types.item_signatures.get(&id));
         let callable = match signature {
-            Some(
-                SymbolTypeFact::Flow { signature }
-                | SymbolTypeFact::Agent { signature }
-                | SymbolTypeFact::Tool { signature },
-            ) => Some(signature),
+            Some(SymbolTypeFact::Flow { signature } | SymbolTypeFact::Tool { signature }) => {
+                Some(signature)
+            }
+            Some(SymbolTypeFact::Agent { signature }) => signature.callable(),
             _ => match item_signature {
-                Some(
-                    ItemSignature::Flow(signature)
-                    | ItemSignature::Agent(signature)
-                    | ItemSignature::Tool(signature),
-                ) if matches!(
-                    symbol.kind,
-                    SymbolKind::Flow | SymbolKind::Agent | SymbolKind::Tool
-                ) =>
+                Some(ItemSignature::Flow(signature) | ItemSignature::Tool(signature))
+                    if matches!(
+                        symbol.kind,
+                        SymbolKind::Flow | SymbolKind::Agent | SymbolKind::Tool
+                    ) =>
                 {
                     Some(signature)
+                }
+                Some(ItemSignature::Agent(signature)) if symbol.kind == SymbolKind::Agent => {
+                    signature.callable()
                 }
                 _ => None,
             },
@@ -342,7 +376,7 @@ impl Printer<'_> {
             Some(SymbolTypeFact::TypeAlias { target, params }) => format!(
                 "alias {}{} = {}",
                 symbol.name,
-                type_params(params),
+                self.generic_params(params),
                 self.ty(*target)
             ),
             Some(SymbolTypeFact::NominalType {
@@ -400,37 +434,7 @@ impl Printer<'_> {
             snapshot: self.snapshot,
             generics: &signature.generic_params,
         };
-        let generics = signature
-            .generic_params
-            .iter()
-            .map(|param| {
-                let name = match param.kind {
-                    CallableGenericParamKind::Effect => format!("effect {}", param.name),
-                    CallableGenericParamKind::Type => param.name.clone(),
-                };
-                let bounds = param
-                    .bounds
-                    .iter()
-                    .map(|bound| {
-                        let name = match &bound.spec {
-                            CheckedSpecRef::Source(id) => self
-                                .snapshot
-                                .symbols
-                                .get(*id)
-                                .map(|symbol| symbol.name.clone())
-                                .unwrap_or_else(|| "<unknown spec>".to_owned()),
-                            CheckedSpecRef::Std(path) => path.join("."),
-                        };
-                        format!("{name}{}", printer.args(&bound.args))
-                    })
-                    .collect::<Vec<_>>();
-                if bounds.is_empty() {
-                    name
-                } else {
-                    format!("{name} ~ {}", bounds.join(" + "))
-                }
-            })
-            .collect::<Vec<_>>();
+        let generics = printer.generic_params(&signature.generic_params);
         let params = signature
             .params
             .iter()
@@ -450,10 +454,48 @@ impl Printer<'_> {
             .map(|row| format!(" {}", printer.row(row)))
             .unwrap_or_default();
         format!(
-            "{keyword} {name}{}({params}) -> {}{row}",
-            type_params(&generics),
+            "{keyword} {name}{generics}({params}) -> {}{row}",
             printer.ty(signature.output)
         )
+    }
+
+    fn generic_params(&self, params: &[CallableGenericParam]) -> String {
+        let printer = Printer {
+            snapshot: self.snapshot,
+            generics: params,
+        };
+        let generics = params
+            .iter()
+            .map(|param| {
+                let name = match param.kind {
+                    CallableGenericParamKind::Effect => format!("effect {}", param.name),
+                    CallableGenericParamKind::Type => param.name.clone(),
+                };
+                let bounds = param
+                    .bounds
+                    .iter()
+                    .map(|bound| {
+                        let name = match &bound.spec {
+                            CheckedSpecRef::Source(id) => self
+                                .snapshot
+                                .symbols
+                                .get(*id)
+                                .map(|symbol| symbol.name.clone())
+                                .unwrap_or_else(|| "<unknown spec>".to_owned()),
+                            CheckedSpecRef::Std(path) => path.join("."),
+                            CheckedSpecRef::External(identity) => identity.path.join("."),
+                        };
+                        format!("{name}{}", printer.args(&bound.args))
+                    })
+                    .collect::<Vec<_>>();
+                if bounds.is_empty() {
+                    name
+                } else {
+                    format!("{name} ~ {}", bounds.join(" + "))
+                }
+            })
+            .collect::<Vec<_>>();
+        type_params(&generics)
     }
 
     fn ty(&self, ty: TypeId) -> String {

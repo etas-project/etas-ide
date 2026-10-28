@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { ExtensionContext, workspace, window, commands } from 'vscode';
 import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind } from 'vscode-languageclient/lib/node/main';
+import { AnalysisStatusBar } from './status-bar';
 
 let client: LanguageClient | undefined;
 
@@ -21,13 +22,16 @@ function resolveServerPath(context: ExtensionContext, configPath: string): strin
     return 'etas-lsp';
 }
 
-export async function activate(context: ExtensionContext): Promise<void> {
+export async function activate(context: ExtensionContext) {
     const output = window.createOutputChannel('Etas Language Server');
     context.subscriptions.push(output);
+    let status: AnalysisStatusBar | undefined;
     try {
         const config = workspace.getConfiguration('etas.lsp');
         const configPath: string = config.get('path', 'etas-lsp');
         const serverPath = resolveServerPath(context, configPath);
+        status = new AnalysisStatusBar(context, output, serverPath);
+        context.subscriptions.push(status);
         console.log('etas: using server path:', serverPath);
 
         const serverOptions: ServerOptions = {
@@ -53,6 +57,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
             serverOptions,
             clientOptions,
         );
+        status.attach(client);
 
         context.subscriptions.push(
             commands.registerCommand('etas.restartServer', async () => {
@@ -63,7 +68,9 @@ export async function activate(context: ExtensionContext): Promise<void> {
 
         await client.start();
         output.appendLine(`Etas language server started: ${serverPath}`);
+        return { analysisStatus: () => status?.snapshot() };
     } catch (err) {
+        status?.fail(err);
         output.appendLine(`Etas language server failed: ${String(err)}`);
         void window.showErrorMessage(`Etas language server failed to start: ${String(err)}`);
         throw err;

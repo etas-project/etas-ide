@@ -2,6 +2,17 @@
 
 All notable changes to the "etas" extension will be documented in this file.
 
+## 0.3.4 - 2026-10-28
+
+- Align the bundled compiler, standard library, and driver with the published CLI dependency set. Agent-scoped `perform infer<T>(...)` now parses and checks without the old unresolved-action cascade.
+- Adapt agent default-entry signatures, external spec bounds, generic alias constraints, and canonical effect names to the current public APIs.
+- Add an Etas status bar item driven by actual server notifications: waiting, package loading, analysis, completion, and failure, with elapsed time, source count, and diagnostics.
+- Show the extension, language-server, frontend, core/std, and driver identities in the tooltip. Producer identities are generated from Cargo.lock; clicking opens the log/restart menu.
+- Preserve status ordering across initial synchronization and server restarts; hide the item outside Etas editors.
+- Consume public selected standard-method signatures where available. Array.push still lacks a selected target fact and is not assigned a synthetic hover.
+- Promote imported Array length and qualified nominal constructors from blocked cases to active regressions; retain the two remaining compiler blockers.
+- Verify agent inference, out-of-agent rejection, lifecycle status, package failure/recovery, and the real VS Code status bar.
+
 ## 0.3.3 - 2026-10-27
 
 - Highlight checked member calls such as `values.push(...)`, chained calls, and methods on grouped or literal receivers.

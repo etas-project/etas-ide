@@ -26,7 +26,9 @@ async fn main() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    let (service, socket) = LspService::new(server::Backend::new);
+    let (service, socket) = LspService::build(server::Backend::new)
+        .custom_method("etas/analysisStatus", server::Backend::analysis_status)
+        .finish();
 
     Server::new(stdin, stdout, socket).serve(service).await;
 }

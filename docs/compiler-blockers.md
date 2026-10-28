@@ -1,13 +1,13 @@
 # Compiler Blockers Found During Semantic Token Verification
 
-Updated: 2026-10-27
+Updated: 2026-10-28
 
-These cases use the Cargo-locked frontend revision `f908b216` and core revision
-`56c50906`. They are not IDE highlighting fallbacks. Positive expected behavior
-is preserved in explicitly ignored tests; running the tests below currently
-fails before a checked semantic snapshot can be produced.
+These cases use Cargo-locked frontend `21c1cd88` and core `4946c9f9`.
+Two compile-blocked cases remain explicitly ignored. The two resolved cases
+below were rerun successfully and are now ordinary positive regressions. No IDE
+highlighting fallback or diagnostic suppression is used.
 
-## Imported Standard Array
+## Imported Standard Array (Resolved)
 
 ```etas
 module tokens;
@@ -18,13 +18,12 @@ flow main() -> i32 { return 0; }
 ```
 
 Expected: the imported standard Array supports the standard length operation.
-Actual: `TypeMismatch`, reporting that `std.collections.Array<string>` does not
-match `LengthInput`. The same operation on the prelude `Array<string>` checks.
-The IDE must not rewrite the imported type to a prelude type or bypass checking.
+The former `LengthInput` mismatch at frontend `f908b216` is fixed upstream.
+This now checks and highlights the imported callable with the same source.
 
 ```bash
 cargo test -p etas_intel --locked --offline \
-  blocked_imported_std_array_satisfies_length_input -- --ignored --nocapture
+  imported_std_array_satisfies_length_input -- --nocapture
 ```
 
 ## Renamed Source Re-Export
@@ -45,7 +44,8 @@ flow main() -> i32 { return forwarded(2); }
 ```
 
 Expected: the re-export retains the original flow's checked signature/effects.
-Actual: `UnknownType` / `NonCallableCallee` and `IncompleteEffectFacts`. Directly
+Actual: `IncompleteEffectFacts` (`source import target requires checked effect
+facts`). The former type errors are resolved, but effect export remains blocked. Directly
 importing `values.square as forwarded` checks. The IDE must not synthesize a
 callable signature or claim semantic success for the failing re-export case.
 
@@ -80,7 +80,7 @@ cargo test -p etas_intel --locked --offline \
   blocked_metadata_only_wildcard_effect_import -- --ignored --nocapture
 ```
 
-## Module-Qualified Record Constructor
+## Module-Qualified Record Constructor (Resolved)
 
 ```etas
 // models.es
@@ -96,14 +96,13 @@ flow main() -> i32 { return 0; }
 ```
 
 Expected: the qualified constructor resolves to the imported nominal type.
-Actual: `TypeMismatch`, including `record constructor is not resolved to a type
-or named enum variant`. Direct imported alias construction `User { id = id }`
-checks and is covered by the positive IDE test. The IDE does not resolve the
-qualified constructor independently or classify an invalid snapshot as checked.
+The former unresolved-constructor `TypeMismatch` at `f908b216` is fixed upstream.
+Qualified `models.Identity { ... }` and imported alias construction now both
+check and highlight through the public snapshot, without IDE resolution.
 
 ```bash
 cargo test -p etas_intel --locked --offline \
-  blocked_module_qualified_record_constructor -- --ignored --nocapture
+  module_qualified_record_constructor -- --nocapture
 ```
 
 ## Selected Method Signature API Gap
@@ -117,8 +116,10 @@ flow main() -> i32 { return 0; }
 ```
 
 This source checks successfully. Checked HIR call shapes and expression types
-support callable highlighting for both method names. However, public `TypeFacts`
-do not retain the selected method target/signature for these calls. In addition,
+support callable highlighting for both method names. Public `TypeFacts` now have
+`std_method_calls` with checked target/signature facts for some registered
+intrinsics. The IDE consumes these facts (tested with `std.compiler.with_body`),
+but they are not emitted for the Array.push calls above. In addition,
 `definition_target_for_expr` on a partial path such as `values.push` returns the
 resolved prefix (`values`), not the method. Reusing that target for member hover
 incorrectly displayed the receiver's declaration.
@@ -127,6 +128,6 @@ The IDE now rejects that receiver-as-member hover and keeps checked field-type
 hover where available. Full method hover/definition requires a public per-call
 selected target and instantiated callable signature, including generic/spec
 bindings and effect/action contracts. No IDE method-name table, overload solver,
-or synthetic signature is introduced. Unlike the four compile-blocked fixtures
+or synthetic signature is introduced. Unlike the two compile-blocked fixtures
 above, this is an API gap after a successful check; the active Rust/LSP tests
 verify highlighting and reject misleading receiver hover.

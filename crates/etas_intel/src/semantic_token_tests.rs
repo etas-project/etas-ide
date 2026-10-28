@@ -56,6 +56,49 @@ fn assert_token_kind(tokens: &[IntelSemanticToken], text: &str, needle: &str, ex
 }
 
 #[test]
+fn agent_scoped_infer_uses_current_compiler_facts() {
+    let source = "module tokens;\nagent Probe(input: string) -> string { return perform infer<string>(Prompt.new().system(Trusted(\"Echo the input\")).data(input)); }\nflow main() -> i32 { return 0; }\n";
+    let (service, uri) = checked(source);
+    assert_eq!(
+        service
+            .snapshot
+            .as_ref()
+            .unwrap()
+            .types
+            .agent_inferences
+            .len(),
+        1
+    );
+    assert_kind(&service, &uri, "infer<string>", "keyword");
+    let hover = service
+        .hover(&uri, source_position(&service, &uri, "Probe(input"))
+        .expect("new agent signature API");
+    assert!(
+        hover.text.contains("agent Probe(input: string) -> string"),
+        "{}",
+        hover.text
+    );
+    assert!(hover.text.contains("Agentic.infer"), "{}", hover.text);
+}
+
+#[test]
+fn infer_is_not_accepted_as_an_unscoped_flow_operation() {
+    let uri = "file:///infer_outside_agent.es".to_owned();
+    let mut service = LanguageService::new();
+    service.open_document(uri, "module tokens;\nflow invalid(input: string) -> string { return perform infer<string>(Prompt.new().system(Trusted(\"Echo\")).data(input)); }\nflow main() -> i32 { return 0; }\n".to_owned(), 1);
+    service.ensure_fresh_analysis();
+    assert!(
+        service
+            .get_diagnostics()
+            .values()
+            .flatten()
+            .any(|diag| diag.severity == IntelSeverity::Error && diag.message.contains("agent")),
+        "{:?}",
+        service.get_diagnostics()
+    );
+}
+
+#[test]
 fn standard_import_alias_calls_and_references_are_functions() {
     let (service, uri) = checked(
         r#"module tokens;
@@ -275,7 +318,7 @@ flow main() -> i32 { return 0; }
         service
             .hover(&uri, source_position(&service, &uri, "push(flag)"))
             .is_none(),
-        "the compiler does not expose a selected method signature; do not show the receiver as push"
+        "Array.push still lacks a selected method fact; never show its receiver as the method"
     );
     let field = service
         .hover(&uri, source_position(&service, &uri, "push; }"))
@@ -289,6 +332,22 @@ flow main() -> i32 { return 0; }
             .all(|token| { token.byte_start as usize != offset || token.token_type != 0 }),
         "a non-call field named push is not a method call"
     );
+}
+
+#[test]
+fn checked_standard_method_signature_hover() {
+    let (service, uri) = checked(
+        "module tokens;\nimport std.compiler.SyntaxBlock;\nagent Worker;\nflow edit(body: SyntaxBlock) -> unit { let descriptor = ^Worker; let changed = descriptor.with_body(body); return; }\nflow main() -> i32 { return 0; }\n",
+    );
+    let method = service
+        .hover(&uri, source_position(&service, &uri, "with_body(body)"))
+        .expect("public selected standard method signature");
+    assert!(
+        method.text.contains("std.compiler.with_body"),
+        "{}",
+        method.text
+    );
+    assert!(method.text.contains("SyntaxBlock"), "{}", method.text);
 }
 
 #[test]
@@ -365,8 +424,7 @@ fn imported_record_constructor_alias_is_a_type() {
 }
 
 #[test]
-#[ignore = "compiler blocker: module-qualified nominal record constructor is unresolved; see docs/compiler-blockers.md"]
-fn blocked_module_qualified_record_constructor() {
+fn module_qualified_record_constructor() {
     imported_record_fixture(true);
 }
 
@@ -446,8 +504,7 @@ fn stale_invalid_edits_do_not_paint_unresolved_calls_as_functions() {
 }
 
 #[test]
-#[ignore = "compiler blocker: imported std Array is not accepted as LengthInput; see docs/compiler-blockers.md"]
-fn blocked_imported_std_array_satisfies_length_input() {
+fn imported_std_array_satisfies_length_input() {
     let (service, uri) = checked(
         "module tokens;\nimport std.collections.Array as Seq;\nimport std.collections.len as count;\nflow size(args: Seq<string>) -> usize { return count(args); }\nflow main() -> i32 { return 0; }\n",
     );

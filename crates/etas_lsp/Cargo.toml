@@ -1,6 +1,6 @@
 [package]
 name = "etas_lsp"
-version = "0.3.3"
+version = "0.3.4"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -19,3 +19,6 @@ tokio.workspace = true
 tower-lsp.workspace = true
 tracing.workspace = true
 tracing-subscriber = "0.3"
+
+[build-dependencies]
+toml = "1.1.2"

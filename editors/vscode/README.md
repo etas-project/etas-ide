@@ -1,5 +1,11 @@
 # Etas
 
+The status bar reports the active Etas analysis project, package loading and
+check progress, last check duration, and diagnostic counts. Hover it to inspect
+the bundled compiler revisions and server path; click it to open the language
+server log or restart the server. Compiler revisions come from the extension's
+build, not from a separate `etas` executable on PATH.
+
 Etas language support for Visual Studio Code.
 
 ## Features

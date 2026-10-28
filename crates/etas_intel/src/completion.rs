@@ -699,12 +699,14 @@ fn completion_signature_detail(
             signature.output,
             &snapshot.type_store,
         )),
-        ItemSignature::Agent(signature) => Some(callable_signature_detail(
-            &symbol.name,
-            &signature.params,
-            signature.output,
-            &snapshot.type_store,
-        )),
+        ItemSignature::Agent(signature) => signature.callable().map(|callable| {
+            callable_signature_detail(
+                &symbol.name,
+                &callable.params,
+                callable.output,
+                &snapshot.type_store,
+            )
+        }),
         ItemSignature::Tool(signature) => Some(callable_signature_detail(
             &symbol.name,
             &signature.params,
