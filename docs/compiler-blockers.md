@@ -1,9 +1,9 @@
 # Compiler Blockers Found During Semantic Token Verification
 
-Updated: 2026-10-28
+Updated: 2026-11-04
 
-These cases use Cargo-locked frontend `21c1cd88` and core `4946c9f9`.
-Two compile-blocked cases remain explicitly ignored. The two resolved cases
+These cases use Cargo-locked frontend `5fad86c4` (0.3.1) and core `563dedc1`.
+One compile-blocked case remains explicitly ignored. The resolved cases
 below were rerun successfully and are now ordinary positive regressions. No IDE
 highlighting fallback or diagnostic suppression is used.
 
@@ -26,7 +26,7 @@ cargo test -p etas_intel --locked --offline \
   imported_std_array_satisfies_length_input -- --nocapture
 ```
 
-## Renamed Source Re-Export
+## Renamed Source Re-Export (Resolved)
 
 ```etas
 // values.es
@@ -44,14 +44,13 @@ flow main() -> i32 { return forwarded(2); }
 ```
 
 Expected: the re-export retains the original flow's checked signature/effects.
-Actual: `IncompleteEffectFacts` (`source import target requires checked effect
-facts`). The former type errors are resolved, but effect export remains blocked. Directly
-importing `values.square as forwarded` checks. The IDE must not synthesize a
-callable signature or claim semantic success for the failing re-export case.
+The former `IncompleteEffectFacts` at frontend `21c1cd88` is fixed upstream.
+The unchanged source now checks, preserves the callable binding, and is covered
+by an active positive regression. No IDE signature/effect synthesis is used.
 
 ```bash
 cargo test -p etas_intel --locked --offline \
-  blocked_renamed_source_reexport_keeps_callable_facts -- --ignored --nocapture
+  renamed_source_reexport_keeps_callable_facts -- --nocapture
 ```
 
 ## Metadata-Only Wildcard Effect Import
@@ -105,7 +104,7 @@ cargo test -p etas_intel --locked --offline \
   module_qualified_record_constructor -- --nocapture
 ```
 
-## Selected Method Signature API Gap
+## Selected Standard Method Signature (Resolved)
 
 ```etas
 module methods;
@@ -115,19 +114,17 @@ flow append(values: Array<string>, item: string) -> Array<string> {
 flow main() -> i32 { return 0; }
 ```
 
-This source checks successfully. Checked HIR call shapes and expression types
-support callable highlighting for both method names. Public `TypeFacts` now have
-`std_method_calls` with checked target/signature facts for some registered
-intrinsics. The IDE consumes these facts (tested with `std.compiler.with_body`),
-but they are not emitted for the Array.push calls above. In addition,
-`definition_target_for_expr` on a partial path such as `values.push` returns the
-resolved prefix (`values`), not the method. Reusing that target for member hover
-incorrectly displayed the receiver's declaration.
+Frontend 0.3.1 now supplies `TypeFacts.std_intrinsic_calls`, including the
+selected `std.collections.array_push` callable signature. The IDE displays the
+producer's generic signature, public effects, and available requested-action
+row without guessing an overload or substituting the receiver's declaration.
+Rust and LSP regressions assert the checked `array_push<T>` signature. Broader
+source/spec method hover and definition integration remains separate work.
 
-The IDE now rejects that receiver-as-member hover and keeps checked field-type
-hover where available. Full method hover/definition requires a public per-call
-selected target and instantiated callable signature, including generic/spec
-bindings and effect/action contracts. No IDE method-name table, overload solver,
-or synthetic signature is introduced. Unlike the two compile-blocked fixtures
-above, this is an API gap after a successful check; the active Rust/LSP tests
-verify highlighting and reject misleading receiver hover.
+## Method Namespace Compatibility
+
+The new method resolver does not turn arbitrary same-named free flows into
+receiver methods (see the frontend architect's `method-resolution-design.md`).
+`std.text.trim` is a free flow, so `trim(text)` is used after import; `text.trim()`
+is rejected. A negative IDE regression preserves that diagnostic instead of
+adding a resolver or syntax rewrite in the extension.

@@ -446,6 +446,10 @@ impl LanguageService {
             self.url_to_source_id.remove(&uri);
         } else if let Some(path) = uri_to_path(&uri) {
             if let Ok(disk_text) = std::fs::read_to_string(path) {
+                if disk_text == doc.text {
+                    self.diagnostics.remove(&uri);
+                    return;
+                }
                 let current_version = self
                     .source_versions
                     .get(&doc.source_id)

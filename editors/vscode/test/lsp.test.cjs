@@ -42,9 +42,14 @@ test('current compiler: agent-scoped infer, build identity, and analysis status 
     t.after(async () => { await client.stop(); fs.rmSync(root, { recursive: true, force: true }); });
     const initialized = await client.initialize(pathToFileURL(root).href);
     const build = initialized.capabilities.experimental.etasBuild;
-    assert.equal(build.server, '0.3.4');
-    assert.equal(build.frontend.revision, '21c1cd88cf35bbe4d886734c637c6ed60ce74654');
-    assert.equal(build.core.revision, '4946c9f9222bffaa8de3ae3ab9f77e508e600d35');
+    assert.equal(build.server, '0.3.5');
+    assert.equal(build.frontend.version, '0.3.1');
+    assert.equal(build.frontend.revision, '5fad86c409aae351da1b74ae0cb7d5d91cc35f26');
+    assert.equal(build.core.revision, '563dedc19ffbaa580cb8bc24e04c6d3d30261de1');
+    assert.equal(build.std.version, '0.1.4');
+    assert.equal(build.std.revision, build.core.revision);
+    assert.equal(build.driver.version, '0.1.5');
+    assert.equal(build.driver.revision, 'c5af4eb8bc1a4209f1a536ac6e3ad1916c7ec42e');
     assert.equal((await client.request('etas/analysisStatus')).phase, 'idle');
     const uri = pathToFileURL(path.join(root, 'main.es')).href;
     const text = 'module agents;\nagent Probe(input: string) -> string { return perform infer<string>(Prompt.new().system(Trusted("Echo the input")).data(input)); }\nflow main() -> i32 { return 0; }\n';
@@ -172,7 +177,7 @@ test('member calls: arrays, chains, name collisions, UTF-16, invalid edits, and 
     const initialized = await client.initialize(pathToFileURL(root).href);
     const legend = initialized.capabilities.semanticTokensProvider.legend;
     const uri = pathToFileURL(path.join(root, 'main.es')).href;
-    const text = 'module methods;\nalias Holder = { push: i32 };\nflow append(values: Array<string>, flag: string) -> Array<string> {\n    let push = values; let unicode = "中文😀 push"; let next = push.push(flag).push(flag);\n    let literal = ["one"].push(flag); let grouped = (values).push(flag);\n    let size = values.len(); let trimmed = flag.trim(); return next;\n}\nflow field(holder: Holder) -> i32 { return holder.push; }\nflow main() -> i32 { return 0; }\n';
+    const text = 'module methods;\nimport std.text.trim;\nalias Holder = { push: i32 };\nflow append(values: Array<string>, flag: string) -> Array<string> {\n    let push = values; let unicode = "中文😀 push"; let next = push.push(flag).push(flag);\n    let literal = ["one"].push(flag); let grouped = (values).push(flag);\n    let size = values.len(); let trimmed = trim(flag); return next;\n}\nflow field(holder: Holder) -> i32 { return holder.push; }\nflow main() -> i32 { return 0; }\n';
     client.notify('textDocument/didOpen', { textDocument: { uri, languageId: 'etas', version: 1, text } });
     assert.deepEqual((await client.diagnostics(uri, 1)).filter(diag => diag.severity === 1), []);
     async function decoded(source) {
@@ -192,7 +197,7 @@ test('member calls: arrays, chains, name collisions, UTF-16, invalid edits, and 
     const methodHover = await client.request('textDocument/hover', { textDocument: { uri }, position: {
         line: methodLines.length - 1, character: methodLines.at(-1).length,
     } });
-    assert.equal(methodHover, null, 'Array.push still lacks selected method facts; do not show its receiver');
+    assert.ok(methodHover?.contents.value.includes('flow std.collections.array_push<T>(Array<T>, T) -> Array<T> ![]'), JSON.stringify(methodHover));
     const fieldLines = text.slice(0, text.indexOf('holder.push;') + 'holder.'.length).split('\n');
     const fieldHover = await client.request('textDocument/hover', { textDocument: { uri }, position: {
         line: fieldLines.length - 1, character: fieldLines.at(-1).length,

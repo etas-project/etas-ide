@@ -7,7 +7,7 @@ use etas_hir::{HirExpr, HirItem, HirType, ResolveResult, Symbol, SymbolKind};
 use etas_syntax::TokenKind;
 use etas_types::{
     CallableGenericParam, CallableGenericParamKind, CallableSignature, CheckedSpecRef,
-    EffectArgRef, EffectRowRef, ItemSignature, SymbolTypeFact, Type, TypeId, TypeStore,
+    EffectArgRef, EffectRowRef, ItemSignature, SymbolTypeFact, Type, TypeId,
 };
 
 use crate::service::{DocumentState, HoverResult};
@@ -64,28 +64,27 @@ pub(crate) fn hover(
         .or_else(|| {
             snapshot
                 .types
-                .std_method_calls
+                .std_intrinsic_calls
                 .iter()
                 .find_map(|(expr, fact)| {
                     let span = crate::semantic_tokens::member_name_span(snapshot, *expr, &parsed)?;
                     if span.source != doc.source_id || span.range != range {
                         return None;
                     }
-                    let Type::Function(signature) = snapshot.type_store.get(fact.signature)? else {
-                        return None;
-                    };
                     let mut text = code(&printer.callable(
                         "flow",
                         &fact.qualified_path.join("."),
-                        &CallableSignature {
-                            generic_params: vec![],
-                            params: signature.input.clone(),
-                            output: signature.output,
-                            effects: signature.effects.clone(),
-                            requested_actions: None,
-                        },
+                        &fact.signature,
                         &[],
                     ));
+                    if let Some(row) = &fact.signature.requested_actions {
+                        if !row.effects.is_empty() || row.tail.is_some() {
+                            text.push_str(&format!(
+                                "\n\nRequested actions:\n\n{}",
+                                code(&printer.row(row))
+                            ));
+                        }
+                    }
                     if let Some(symbol) =
                         snapshot.std_registry.lookup_qualified(&fact.qualified_path)
                     {
@@ -475,16 +474,7 @@ impl Printer<'_> {
                     .bounds
                     .iter()
                     .map(|bound| {
-                        let name = match &bound.spec {
-                            CheckedSpecRef::Source(id) => self
-                                .snapshot
-                                .symbols
-                                .get(*id)
-                                .map(|symbol| symbol.name.clone())
-                                .unwrap_or_else(|| "<unknown spec>".to_owned()),
-                            CheckedSpecRef::Std(path) => path.join("."),
-                            CheckedSpecRef::External(identity) => identity.path.join("."),
-                        };
+                        let name = spec_name(self.snapshot, &bound.spec);
                         format!("{name}{}", printer.args(&bound.args))
                     })
                     .collect::<Vec<_>>();
@@ -499,7 +489,7 @@ impl Printer<'_> {
     }
 
     fn ty(&self, ty: TypeId) -> String {
-        type_name(&self.snapshot.type_store, self.generics, ty, 0)
+        type_name(self.snapshot, self.generics, ty, 0)
     }
 
     fn args(&self, args: &[TypeId]) -> String {
@@ -594,7 +584,7 @@ fn type_params(params: &[String]) -> String {
 }
 
 fn type_name(
-    store: &TypeStore,
+    snapshot: &ProjectSemanticSnapshot,
     generics: &[CallableGenericParam],
     ty: TypeId,
     depth: usize,
@@ -605,7 +595,8 @@ fn type_name(
     if depth >= 32 {
         return "...".to_owned();
     }
-    let inner = |ty| type_name(store, generics, ty, depth + 1);
+    let store = &snapshot.type_store;
+    let inner = |ty| type_name(snapshot, generics, ty, depth + 1);
     let args = |args: &[TypeId]| {
         args.iter()
             .map(|ty| inner(*ty))
@@ -613,6 +604,18 @@ fn type_name(
             .join(", ")
     };
     match store.get(ty) {
+        Some(Type::Existential { bounds }) => format!(
+            "? ~ {}",
+            bounds
+                .iter()
+                .map(|bound| format!(
+                    "{}{}",
+                    spec_name(snapshot, &bound.spec),
+                    type_params(&bound.args.iter().map(|ty| inner(*ty)).collect::<Vec<_>>())
+                ))
+                .collect::<Vec<_>>()
+                .join(" + ")
+        ),
         Some(Type::Function(flow)) => {
             let params = args(&flow.input);
             // Function values carry their own latent effect row, not the enclosing flow's row.
@@ -667,5 +670,18 @@ fn type_name(
         Some(Type::Trust { wrapper, inner: ty }) => format!("{wrapper}<{}>", inner(*ty)),
         Some(Type::Refined { base, .. }) => inner(*base),
         _ => etas_types::ty::display_type(store, ty),
+    }
+}
+
+fn spec_name(snapshot: &ProjectSemanticSnapshot, spec: &CheckedSpecRef) -> String {
+    match spec {
+        CheckedSpecRef::Source(id) => snapshot
+            .symbols
+            .get(*id)
+            .map(|symbol| symbol.name.clone())
+            .unwrap_or_else(|| "<unknown spec>".to_owned()),
+        CheckedSpecRef::Std(path) => path.join("."),
+        CheckedSpecRef::External(identity) => identity.path.join("."),
+        CheckedSpecRef::Canonical(identity) => identity.declaration().join("."),
     }
 }

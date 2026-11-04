@@ -13,6 +13,7 @@ export interface BuildInfo {
     server: string;
     frontend: { version: string; revision: string };
     core: { version: string; revision: string };
+    std?: { version: string; revision: string };
     driver: { version: string; revision: string };
 }
 
@@ -50,7 +51,8 @@ export function statusView(status: AnalysisStatus, connection: 'starting' | 'run
         `Extension: ${extensionVersion}`,
         `Language server: ${build?.server ?? 'Not reported'}`,
         `Frontend: ${build ? build.frontend.version + ' @ ' + build.frontend.revision.slice(0, 8) : 'Not reported'}`,
-        `Core/std: ${build ? build.core.version + ' @ ' + build.core.revision.slice(0, 8) : 'Not reported'}`,
+        `Core: ${build ? build.core.version + ' @ ' + build.core.revision.slice(0, 8) : 'Not reported'}`,
+        `Std: ${build?.std ? build.std.version + ' @ ' + build.std.revision.slice(0, 8) : 'Not reported'}`,
         `Driver: ${build ? build.driver.version + ' @ ' + build.driver.revision.slice(0, 8) : 'Not reported'}`,
         `Server: ${serverPath}`,
     ];

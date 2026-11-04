@@ -118,6 +118,7 @@ impl LanguageServer for Backend {
                         "server": env!("CARGO_PKG_VERSION"),
                         "frontend": { "version": env!("ETAS_FRONTEND_VERSION"), "revision": env!("ETAS_FRONTEND_REVISION") },
                         "core": { "version": env!("ETAS_CORE_VERSION"), "revision": env!("ETAS_CORE_REVISION") },
+                        "std": { "version": env!("ETAS_STD_VERSION"), "revision": env!("ETAS_STD_REVISION") },
                         "driver": { "version": env!("ETAS_DRIVER_VERSION"), "revision": env!("ETAS_DRIVER_REVISION") }
                     },
                     "etasAnalysisStatus": true

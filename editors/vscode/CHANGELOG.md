@@ -2,6 +2,15 @@
 
 All notable changes to the "etas" extension will be documented in this file.
 
+## 0.3.5 - 2026-11-04
+
+- Update the bundled frontend to 0.3.1 (`5fad86c4`), std to 0.1.4 (`563dedc1`), and driver to 0.1.5 (`c5af4eb8`), matching the published CLI dependency set.
+- Adapt checked standard-intrinsic signatures, canonical spec identities, and existential type display to the current compiler APIs; preserve callable effect/action contracts.
+- Show Core and Std build identities separately instead of labeling the Core version as both.
+- Expose the compiler-selected Array.push signature and promote renamed source re-export coverage from a blocker to an active regression.
+- Match the new method namespace rules: use explicit `std.text.trim` calls rather than treating free flows as receiver methods; reject guessed method highlighting.
+- Reuse the checked project when an unchanged source document closes, avoiding whole-project rechecks during editor document cleanup; dirty-document disk restoration remains checked.
+
 ## 0.3.4 - 2026-10-28
 
 - Align the bundled compiler, standard library, and driver with the published CLI dependency set. Agent-scoped `perform infer<T>(...)` now parses and checks without the old unresolved-action cascade.

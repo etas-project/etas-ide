@@ -1,13 +1,14 @@
 # Etas IDE Status
 
-Version: 0.3.4
+Version: 0.3.5
 
-Updated: 2026-10-28
+Updated: 2026-11-04
 
 ## Implemented
 
-- The release pins frontend `21c1cd88`, core/std `4946c9f9`, and driver
-  `b7e20625`, matching the current published CLI producer set. Agent-scoped
+- The release pins frontend 0.3.1 (`5fad86c4`), std 0.1.4/core (`563dedc1`), and
+  driver 0.1.5 (`c5af4eb8`), matching the published CLI producer set. Core and Std
+  version/revision fields are reported separately. Agent-scoped
   `perform infer<T>(...)` uses checked inference facts; unscoped flow inference
   still fails. No source rewrite or diagnostic suppression is used.
 - An Etas-only status bar displays actual queued/package/checking/ready/failed
@@ -35,7 +36,7 @@ Updated: 2026-10-28
 - Explicit package preparation failure diagnostics and reload on manifest,
   lockfile, or package-index changes. Invalid package setup is not reported as
   a successful standalone analysis.
-- Unchanged disk-backed document opens reuse the checked project. Hover and
+- Unchanged disk-backed document opens and closes reuse the checked project. Hover and
   completion do not rebuild an already-prepared package on every request.
 - Dedicated 8 MiB compiler analysis worker stack, stdio-safe logging, bundled
   native LSP binary, and VSIX packaging.
@@ -61,9 +62,9 @@ Updated: 2026-10-28
 
 ## Verification
 
-The 0.3.4 development verification includes:
+The 0.3.5 development verification includes:
 
-- Rust workspace regression tests: 73 passed, 2 compiler-blocked positive tests
+- Rust workspace regression tests: 77 passed, 1 compiler-blocked positive test
   explicitly ignored. Metadata-only dependency import coverage uses real
   driver-generated package metadata.
 - Strict workspace Clippy and formatting checks.
@@ -73,12 +74,12 @@ The 0.3.4 development verification includes:
 - Real stdio LSP tests for initialization, Outline, lexical and semantic
   ranges, parse errors, versioned diagnostics, UTF-16 incremental edits,
   recovery, package preparation failure/reload, checked hover content/imports,
-  scoped actions, and stale-source hover rejection. All 92 real-project files
-  also passed checked hover assertions with zero error diagnostics.
-- Real VS Code extension-host tests against `~/Projects/nomo`: 92 source
-  files with Outline, semantic providers, and 92 readable flow hovers, plus unsaved
+  scoped actions, and stale-source hover rejection. All 180 real-project files
+  passed with zero error diagnostics, including 173 checked flow hovers.
+- Real VS Code extension-host tests against `~/Projects/nomo`: 180 source
+  files with Outline, semantic providers, and 173 readable flow hovers, plus unsaved
   parse-error/recovery and Unicode hover-range tests in a temporary document.
-- TextMate verification over the same 92 files: 8,843 keyword occurrences,
+- TextMate verification over the same 180 files: 18,697 keyword occurrences,
   including contextual keyword names. The reported `edit_args.es` import alias
   and its calls are asserted as functions in both LSP and VS Code tests.
 - The exact `Identity { id = id, workspace = workspace, ... }` occurrence in
@@ -91,6 +92,10 @@ The 0.3.4 development verification includes:
 - Agent-scoped inference, outside-agent rejection, compiler build identity,
   analysis notifications/status queries, phase ordering, diagnostic counts,
   dependency loading failure and recovery, status-bar visibility and restart.
+- Canonical spec names and nested existential types retain readable evidence in
+  hover. Standard methods use the current checked intrinsic signature API,
+  including `Array.push` generic signature and public effect/action rows.
+  Free flows are not silently reinterpreted as receiver methods.
 
 The project tests read source files but do not run model, network, tool, or
 runtime actions. Package loading may acquire the package manager's local
@@ -121,16 +126,15 @@ For the real editor gate, launch a local VS Code executable with:
 
 ## Remaining Work
 
-Two positive cases remain blocked by the linked compiler, with executable
-ignored tests and exact reproducers in [Compiler blockers](compiler-blockers.md):
-renamed source re-export effect facts and metadata-only wildcard effect imports.
-Imported Array length and qualified nominal constructors now pass as ordinary
+One positive case remains blocked by the linked compiler, with an executable
+ignored test and exact reproducer in [Compiler blockers](compiler-blockers.md):
+metadata-only wildcard effect imports.
+Renamed source re-export effect facts, imported Array length and qualified nominal constructors now pass as ordinary
 regressions. The IDE does not synthesize semantic
 success for these cases or relax their expected behavior.
 
-Public selected standard-method facts now supply signature hover where present
-(including checked reflection methods). They do not cover ordinary Array.push;
-its full signature remains blocked. The IDE does not guess an overload or
+Public selected standard-intrinsic facts now supply signature hover, including
+Array.push and checked reflection methods. The IDE does not guess an overload or
 substitute the receiver's declaration; see [Compiler blockers](compiler-blockers.md).
 
 Workspace symbols, references, code actions, formatting, cancellation of an

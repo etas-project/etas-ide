@@ -8,6 +8,7 @@ fn main() {
     for (name, key) in [
         ("etas_frontend", "FRONTEND"),
         ("etas_core", "CORE"),
+        ("etas_std", "STD"),
         ("etas_driver", "DRIVER"),
     ] {
         let matches = packages

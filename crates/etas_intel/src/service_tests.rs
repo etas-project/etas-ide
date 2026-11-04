@@ -2539,3 +2539,28 @@ fn test_analysis_status_deduplicates_identical_reports() {
     assert!(matches!(rx.try_recv(), Ok(Event::AnalysisStatus(_))));
     assert!(rx.try_recv().is_err());
 }
+#[test]
+fn test_close_unchanged_project_file_keeps_checked_revision() {
+    let root = std::env::temp_dir().join(format!("etas_close_unchanged_{}", std::process::id()));
+    let src = root.join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    let file = src.join("main.es");
+    let source = "module main; flow main() -> i32 { return 0; }";
+    std::fs::write(&file, source).unwrap();
+    let uri = path_to_uri(&file);
+    let mut service = LanguageService::new();
+    service.set_workspace_root(root.clone());
+    service.open_document(uri.clone(), source.to_owned(), 1);
+    assert!(service.snapshot.is_some());
+    let revision = service.project_revision;
+    let versions = service.source_versions.clone();
+    let sequence = service.analysis_status.sequence;
+    service.close_document(uri);
+    assert_eq!(service.project_revision, revision);
+    assert_eq!(service.source_versions, versions);
+    assert_eq!(
+        service.analysis_status.sequence, sequence,
+        "closing unchanged text must not invoke the compiler"
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}

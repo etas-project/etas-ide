@@ -737,6 +737,7 @@ fn callable_signature_detail(
 
 fn type_name(ty: TypeId, store: &TypeStore) -> String {
     match store.get(ty).cloned() {
+        Some(Type::Existential { .. }) => etas_types::ty::display_type(store, ty),
         Some(Type::Primitive(primitive)) => primitive.source_name().to_owned(),
         Some(Type::IntegerLiteral { .. }) => "i32".to_owned(),
         Some(Type::Var(var)) => format!("T{}", var.0),

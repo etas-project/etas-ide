@@ -154,8 +154,10 @@ async function run() {
             result => result?.visible && result.connection === 'running' && result.phase === 'ready' && result.errors === 0 && result.initialSyncComplete,
             'status bar must reflect the completed analysis');
         assert.ok(status.text.includes('$(check)'), JSON.stringify(status));
-        assert.ok(status.tooltip.includes('Frontend: 0.1.0 @ 21c1cd88'), status.tooltip);
-        assert.ok(status.tooltip.includes('Core/std: 0.1.0 @ 4946c9f9'), status.tooltip);
+        assert.ok(status.tooltip.includes('Frontend: 0.3.1 @ 5fad86c4'), status.tooltip);
+        assert.ok(status.tooltip.includes('Core: 0.1.0 @ 563dedc1'), status.tooltip);
+        assert.ok(status.tooltip.includes('Std: 0.1.4 @ 563dedc1'), status.tooltip);
+        assert.ok(status.tooltip.includes('Driver: 0.1.5 @ c5af4eb8'), status.tooltip);
         assert.equal(typeof status.elapsedMs, 'number');
         const plain = await vscode.workspace.openTextDocument({ language: 'plaintext', content: 'status visibility probe' });
         await vscode.window.showTextDocument(plain);
@@ -167,7 +169,7 @@ async function run() {
         assert.ok(registered.includes('etas.showStatus'));
         await vscode.commands.executeCommand('etas.restartServer');
         await eventually(() => extension.exports.analysisStatus(),
-            result => result?.visible && result.connection === 'running' && result.phase === 'ready' && result.build?.server === '0.3.4' && result.initialSyncComplete,
+            result => result?.visible && result.connection === 'running' && result.phase === 'ready' && result.build?.server === '0.3.5' && result.initialSyncComplete,
             'status must recover after a language-server restart');
         const hovers = await eventually(
             () => vscode.commands.executeCommand('vscode.executeHoverProvider', uri, doc.positionAt(valid.indexOf('square(4)'))),

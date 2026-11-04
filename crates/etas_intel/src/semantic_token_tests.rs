@@ -99,6 +99,44 @@ fn infer_is_not_accepted_as_an_unscoped_flow_operation() {
 }
 
 #[test]
+fn existential_type_hover_keeps_named_spec_evidence() {
+    let source = "module tokens;\nspec Named<T> { flow name(self) -> T ![]; }\nflow retain(value: ? ~ Named<string>) -> Array<? ~ Named<string>> { return [value]; }\nflow main() -> i32 { return 0; }\n";
+    let (service, uri) = checked(source);
+    let hover = service
+        .hover(&uri, source_position(&service, &uri, "retain(value"))
+        .expect("existential signature");
+    assert!(hover.text.contains("Named<string>"), "{}", hover.text);
+    assert!(hover.text.contains("Array<? ~ "), "{}", hover.text);
+    assert!(!hover.text.contains("TypeId("), "{}", hover.text);
+    assert!(!hover.text.contains("spec#"), "{}", hover.text);
+}
+
+#[test]
+fn free_flow_is_not_a_guessed_receiver_method() {
+    let uri = "file:///free_flow_method.es".to_owned();
+    let mut service = LanguageService::new();
+    service.open_document(uri.clone(), "module tokens;\nimport std.text.trim;\nflow invalid(value: string) -> string { return value.trim(); }\nflow main() -> i32 { return 0; }\n".to_owned(), 1);
+    service.ensure_fresh_analysis();
+    assert!(
+        service
+            .get_diagnostics()
+            .values()
+            .flatten()
+            .any(|diag| diag.severity == IntelSeverity::Error
+                && diag.message.contains("no accessible method `trim`")),
+        "{:?}",
+        service.get_diagnostics()
+    );
+    let (tokens, text) = service.semantic_tokens(&uri);
+    let method = text.find("value.trim()").unwrap() + "value.".len();
+    assert!(
+        tokens
+            .iter()
+            .all(|token| token.byte_start as usize != method || token.token_type != 0)
+    );
+}
+
+#[test]
 fn standard_import_alias_calls_and_references_are_functions() {
     let (service, uri) = checked(
         r#"module tokens;
@@ -294,6 +332,7 @@ fn source_position(service: &LanguageService, uri: &str, needle: &str) -> LspPos
 fn checked_member_calls_cover_paths_chains_and_repeated_names() {
     let (service, uri) = checked(
         r#"module tokens;
+import std.text.trim;
 alias Holder = { values: Array<string>, push: i32 };
 flow append(values: Array<string>, flag: string) -> Array<string> {
     let push = values;
@@ -302,7 +341,7 @@ flow append(values: Array<string>, flag: string) -> Array<string> {
     let grouped = (values).push(flag);
     let multiline = values
         . /* push is a comment, not a method token */ push(flag);
-    let trimmed = flag.trim();
+    let trimmed = trim(flag);
     let size = values.len();
     return next;
 }
@@ -311,15 +350,20 @@ flow main() -> i32 { return 0; }
 "#,
     );
     assert_kind(&service, &uri, "push(flag)", "function");
-    assert_kind(&service, &uri, "trim()", "function");
+    assert_kind(&service, &uri, "trim(flag)", "function");
     assert_kind(&service, &uri, "len()", "function");
     assert_kind(&service, &uri, "push.push", "variable");
+    let method = service
+        .hover(&uri, source_position(&service, &uri, "push(flag)"))
+        .expect("checked Array.push signature");
     assert!(
-        service
-            .hover(&uri, source_position(&service, &uri, "push(flag)"))
-            .is_none(),
-        "Array.push still lacks a selected method fact; never show its receiver as the method"
+        method
+            .text
+            .contains("flow std.collections.array_push<T>(Array<T>, T) -> Array<T> ![]"),
+        "{}",
+        method.text
     );
+    assert!(!method.text.contains("let push:"), "{}", method.text);
     let field = service
         .hover(&uri, source_position(&service, &uri, "push; }"))
         .expect("checked field projection hover");
@@ -512,8 +556,7 @@ fn imported_std_array_satisfies_length_input() {
 }
 
 #[test]
-#[ignore = "compiler blocker: renamed source re-export lacks checked type/effect facts; see docs/compiler-blockers.md"]
-fn blocked_renamed_source_reexport_keeps_callable_facts() {
+fn renamed_source_reexport_keeps_callable_facts() {
     let root = std::env::temp_dir().join(format!("etas_blocked_reexport_{}", std::process::id()));
     let src = root.join("src");
     std::fs::create_dir_all(&src).unwrap();
