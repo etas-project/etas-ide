@@ -1302,6 +1302,8 @@ impl LanguageService {
                 HirNodeRef::Expr(expr_id) => {
                     if let Some(target) = snapshot.definition_target_for_expr(expr_id) {
                         locations.extend(self.resolve_definition_target(target, snapshot));
+                    } else if let Some(location) = self.std_method_definition(expr_id, snapshot) {
+                        locations.push(location);
                     }
                 }
                 HirNodeRef::Symbol(symbol_id) => {
@@ -1627,7 +1629,38 @@ impl LanguageService {
         } else {
             library.hir_item_bindings.hir_to_ast.get(item)?.span
         };
-        let source = library
+        self.std_source_location(span)
+    }
+
+    fn std_method_definition(
+        &self,
+        expr: etas_hir::HirExprId,
+        snapshot: &ProjectSemanticSnapshot,
+    ) -> Option<IntelLocation> {
+        let StdProvider::Artifact(provider) = &self.std_provider else {
+            return None;
+        };
+        let etas_types::method::MethodTarget::External { identity } =
+            &snapshot.types.selected_method(expr)?.target
+        else {
+            return None;
+        };
+        let item = provider.sdk.image.methods.get(identity)?;
+        let library = &provider.library.program;
+        let etas_hir::HirItem::Flow(method) = library.hir.items.get(*item)? else {
+            return None;
+        };
+        let span = library.symbols.get(method.symbol)?.definition_span;
+        self.std_source_location(span)
+    }
+
+    fn std_source_location(&self, span: etas_core::Span) -> Option<IntelLocation> {
+        let StdProvider::Artifact(provider) = &self.std_provider else {
+            return None;
+        };
+        let source = provider
+            .library
+            .program
             .sources
             .sources
             .iter()
