@@ -2591,7 +2591,11 @@ fn installed_std_provider_navigates_aliases_prelude_and_module_calls_after_reloc
     }
     std::fs::write(
         source.join("library/std/text/extra.es"),
-        "module std.text; public flow newcomer<T>(value: T) -> T { return value; }",
+        r#"module std.text;
+public flow newcomer<T>(value: T) -> T { return value; }
+public type Parcel<T> = { value: T };
+public enum Reply<T> { Empty, Item(T), Named { value: T }, }
+"#,
     )
     .unwrap();
     std::fs::write(
@@ -2621,13 +2625,15 @@ fn installed_std_provider_navigates_aliases_prelude_and_module_calls_after_reloc
     std::fs::write(app_root.join("etas.toml"), "[package]\nname = 'consumer'\nversion = '0.1.0'\nedition = '2026'\n[source]\nroot = 'src'\n").unwrap();
     let app = app_root.join("src/app/main.es");
     let text = r#"module app.main;
-import std.text.{join as assemble, newcomer};
+import std.text.{join as assemble, newcomer, Parcel, Reply};
 import std.text as text;
 flow main(args: Array<string>) -> i32 {
     let joined = assemble(["a", "b"], "|");
     let copied = newcomer(joined);
     let from_prelude = bundled(copied);
     let from_module = text.join([from_prelude], "");
+    let parcel: Parcel<string> = Parcel { value = from_module };
+    let reply: Reply<string> = Reply.Named { value = parcel.value };
     return 0;
 }
 "#;
@@ -2658,6 +2664,9 @@ flow main(args: Array<string>) -> i32 {
         ("newcomer(joined)", "newcomer", "extra.es", "newcomer"),
         ("bundled(copied)", "bundled", "extra.es", "newcomer"),
         ("text.join", "join", "assembly.es", "join"),
+        ("Parcel<string>", "Parcel", "extra.es", "Parcel"),
+        ("Reply<string>", "Reply", "extra.es", "Reply"),
+        ("Reply.Named", "Named", "extra.es", "Named"),
     ] {
         let start = text.find(needle).unwrap() + needle.find(token).unwrap();
         let before = &text[..start];

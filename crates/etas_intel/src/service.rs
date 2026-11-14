@@ -1605,14 +1605,28 @@ impl LanguageService {
         let StdProvider::Artifact(provider) = &self.std_provider else {
             return None;
         };
-        let binding = provider.registry.body_binding(symbol)?;
+        let declaration = provider.registry.symbol(symbol)?;
+        let owner = declaration.enum_owner.unwrap_or(symbol);
         let item = provider
             .sdk
             .image
             .declarations
-            .get(binding.callable.as_declaration()?)?;
+            .get(provider.registry.declaration_key(owner)?)?;
         let library = &provider.library.program;
-        let span = library.hir_item_bindings.hir_to_ast.get(item)?.span;
+        let span = if declaration.enum_owner.is_some() {
+            let etas_hir::HirItem::Enum(owner) = library.hir.items.get(*item)? else {
+                return None;
+            };
+            let variant = owner.variants.iter().find(|variant| {
+                library
+                    .symbols
+                    .get(variant.symbol)
+                    .is_some_and(|symbol| symbol.name == declaration.name)
+            })?;
+            library.symbols.get(variant.symbol)?.definition_span
+        } else {
+            library.hir_item_bindings.hir_to_ast.get(item)?.span
+        };
         let source = library
             .sources
             .sources

@@ -109,7 +109,9 @@ One provider is retained across project switches and package reloads. Source
 flow completion, hover, semantic tokens and go-to-definition use that session's
 query view. Definitions follow aliases and prelude re-exports to the installed
 `.es` declaration, using its own source map. Native-backed source flows such as
-`std.text.trim` navigate to their authored declaration in `native.es`. Starting from a relocated prefix
+`std.text.trim` navigate to their authored declaration in `native.es`. Source
+types and enum constructors use their bundle declaration identities, including
+the individual source span of a named constructor. Starting from a relocated prefix
 works after the original development sources have been removed. Changing either extension setting restarts
 the server to select a fresh provider session. Rebuilding an SDK can be picked up
 with **Etas: Restart Server**.
