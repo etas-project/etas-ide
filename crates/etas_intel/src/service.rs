@@ -4,6 +4,7 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::time::Instant;
 
 use etas_core::{SourceId, TextSize};
+use etas_driver::std_library::provider::StdProvider;
 use etas_frontend::{
     CheckMode, CheckRequest, CheckScope, DefinitionTarget, DiskCacheAccess, EntryPolicy,
     ExternalPackageId, FrontendSession, ImportTarget, MemoryArtifactReuse, ProjectChangeSet,
@@ -68,6 +69,7 @@ pub type DiagnosticSnapshot = (
 );
 
 pub enum Command {
+    SetStdProvider(StdProvider),
     SetWorkspaceRoot(PathBuf),
     DebouncedCheck,
     ReloadPackage,
@@ -144,6 +146,7 @@ pub struct IntelSemanticToken {
 
 struct LanguageService {
     session: FrontendSession,
+    std_provider: StdProvider,
     project_id: Option<ProjectSessionId>,
     documents: HashMap<String, DocumentState>,
     url_to_source_id: HashMap<String, SourceId>,
@@ -165,9 +168,15 @@ struct LanguageService {
 }
 
 impl LanguageService {
+    #[cfg(test)]
     fn new() -> Self {
+        Self::with_std_provider(StdProvider::Legacy)
+    }
+
+    fn with_std_provider(std_provider: StdProvider) -> Self {
         Self {
-            session: FrontendSession::new(),
+            session: std_session(&std_provider),
+            std_provider,
             project_id: None,
             documents: HashMap::new(),
             url_to_source_id: HashMap::new(),
@@ -324,7 +333,11 @@ impl LanguageService {
 
         self.source_versions.entry(source_id).or_insert(0);
 
-        if added_project_file {
+        if added_project_file
+            || (existing_id.is_none()
+                && self.document_source_kind(path.as_deref()) == SourceKind::SingleFileInput)
+        {
+            // New named files add a definition owner as well as source bytes.
             self.rebuild_project();
             return;
         }
@@ -366,11 +379,7 @@ impl LanguageService {
             });
         } else {
             let doc = self.documents.get(&uri).unwrap();
-            let kind = if self.workspace_root.is_some() {
-                SourceKind::SourceProjectFile
-            } else {
-                SourceKind::LspOverlay
-            };
+            let kind = self.document_source_kind(path.as_deref());
             self.pending_changes.push(SourceChange::Add(SourceInput {
                 id: source_id,
                 path,
@@ -489,7 +498,7 @@ impl LanguageService {
                         id: pf.source_id,
                         path: Some(pf.path.clone()),
                         text,
-                        kind: SourceKind::SourceProjectFile,
+                        kind: self.document_source_kind(Some(&pf.path)),
                     }));
                 }
             }
@@ -563,7 +572,7 @@ impl LanguageService {
                 id: pf.source_id,
                 path: Some(pf.path.clone()),
                 text,
-                kind: SourceKind::SourceProjectFile,
+                kind: self.document_source_kind(Some(&pf.path)),
             });
             seen.insert(pf.path.clone());
             // Track all source_ids in the project so AddSourceFile won't re-add them
@@ -579,11 +588,7 @@ impl LanguageService {
                 {
                     continue;
                 }
-                let kind = if self.workspace_root.is_some() {
-                    SourceKind::SourceProjectFile
-                } else {
-                    SourceKind::LspOverlay
-                };
+                let kind = self.document_source_kind(Some(&path));
                 sources.push(SourceInput {
                     id: doc.source_id,
                     path: Some(path.clone()),
@@ -629,11 +634,14 @@ impl LanguageService {
             );
         }
 
-        let input = ProjectInput {
+        let mut input = ProjectInput {
             project_root,
             source_root,
             options: ProjectCompileOptions {
                 entry_policy: EntryPolicy::CompileOnly,
+                // Semantic queries must retain every authored call site; CSE
+                // replaces equivalent calls with local references in runtime HIR.
+                optimization_level: etas_frontend::OptimizationLevel::O0,
                 ..Default::default()
             },
             environment,
@@ -644,9 +652,61 @@ impl LanguageService {
             },
         };
 
+        if let Err(error) = self.capture_standalone_origins(&mut input) {
+            self.package_error = Some(error.to_string());
+            self.publish_unprepared_diagnostics();
+            return;
+        }
+        if let StdProvider::Artifact(provider) = &self.std_provider {
+            input.options.standard_library_mode = etas_frontend::StandardLibraryMode::Artifact;
+            input.options.standard_library_artifact = Some(provider.identity.clone());
+        }
         let id = self.session.open_project(input);
         self.project_id = Some(id);
         self.analysis_stale = true;
+    }
+
+    fn capture_standalone_origins(
+        &self,
+        input: &mut ProjectInput,
+    ) -> Result<(), etas_driver::DriverError> {
+        for source in &input.sources {
+            if source.kind != SourceKind::SingleFileInput {
+                continue;
+            }
+            let loaded = etas_driver::load_project(
+                &etas_driver::DriverOptions {
+                    std_provider: self.std_provider.clone(),
+                    cache_mode: etas_driver::DriverCacheMode::Off,
+                    ..Default::default()
+                },
+                etas_driver::LoadProjectRequest {
+                    paths: vec![source.path.clone().expect("named standalone source")],
+                    all: false,
+                    entry_policy: EntryPolicy::CompileOnly,
+                    flow: None,
+                    bin: None,
+                    source_dependency_mode: etas_driver::SourceDependencyMode::MetadataOnly,
+                },
+            )?;
+            let origins = &loaded.loaded.input.environment;
+            let package = origins
+                .local_source_package
+                .or_else(|| {
+                    origins
+                        .standalone_source_packages
+                        .first()
+                        .map(|origin| origin.package)
+                })
+                .expect("driver captures the standalone definition owner");
+            input.environment.standalone_source_packages.push(
+                etas_frontend::ProjectStandaloneSourcePackage {
+                    source: source.id,
+                    package,
+                },
+            );
+        }
+        Ok(())
     }
 
     fn append_dependency_source_overlays(
@@ -751,9 +811,25 @@ impl LanguageService {
             };
             return package_root_for_document(path)
                 .map(canonical_or_original)
-                .is_some_and(|root| root == *workspace_root);
+                .map_or_else(
+                    || path.starts_with(workspace_root),
+                    |root| root == *workspace_root,
+                );
         };
         path.starts_with(src_dir)
+    }
+
+    fn document_source_kind(&self, path: Option<&Path>) -> SourceKind {
+        if path
+            .zip(self.current_source_root())
+            .is_some_and(|(path, root)| path.starts_with(root))
+        {
+            SourceKind::SourceProjectFile
+        } else if path.is_some_and(Path::is_file) {
+            SourceKind::SingleFileInput
+        } else {
+            SourceKind::LspOverlay
+        }
     }
 
     fn current_source_root(&self) -> Option<PathBuf> {
@@ -767,7 +843,7 @@ impl LanguageService {
     }
 
     fn switch_project_root(&mut self, root: PathBuf) {
-        self.session = FrontendSession::new();
+        self.session = std_session(&self.std_provider);
         self.project_id = None;
         self.url_to_source_id.clear();
         self.project_revision = 0;
@@ -821,7 +897,7 @@ impl LanguageService {
     }
 
     fn rebuild_project(&mut self) {
-        self.session = FrontendSession::new();
+        self.session = std_session(&self.std_provider);
         self.project_id = None;
         self.project_revision = 0;
         self.source_versions.clear();
@@ -857,14 +933,26 @@ impl LanguageService {
             })
             .map_err(|error| error.to_string())
             .and_then(|prepared| {
+                let package = etas_package::local_definition_package_key(
+                    &prepared.package_root,
+                    prepared
+                        .environment
+                        .current_package
+                        .as_ref()
+                        .expect("prepared package identity"),
+                )
+                .map_err(|error| error.to_string())?;
                 etas_driver::package_env::frontend_environment(prepared.environment.clone())
                     .map_err(|error| error.to_string())
-                    .map(|environment| PreparedPackageState {
-                        root: prepared.package_root,
-                        source_root: prepared.source_root,
-                        selected_bin: prepared.selected_bin,
-                        environment,
-                        package_environment: prepared.environment,
+                    .map(|mut environment| {
+                        environment.local_source_package = Some(package);
+                        PreparedPackageState {
+                            root: prepared.package_root,
+                            source_root: prepared.source_root,
+                            selected_bin: prepared.selected_bin,
+                            environment,
+                            package_environment: prepared.environment,
+                        }
                     })
             });
             let _ = tx.send(result);
@@ -1422,7 +1510,15 @@ impl LanguageService {
             ResolvedModuleTarget::Source { module, .. } => {
                 self.resolve_source_module_export(*module, name, snapshot)
             }
-            ResolvedModuleTarget::Std { .. } | ResolvedModuleTarget::External { .. } => None,
+            ResolvedModuleTarget::Std { path, .. } => {
+                let mut qualified = path.segments.clone();
+                qualified.push(name.to_owned());
+                snapshot
+                    .std_registry
+                    .lookup_qualified(&qualified)
+                    .map(|symbol| self.std_definition(symbol.id).into_iter().collect())
+            }
+            ResolvedModuleTarget::External { .. } => None,
         }
     }
 
@@ -1446,9 +1542,16 @@ impl LanguageService {
         snapshot: &ProjectSemanticSnapshot,
     ) -> Vec<IntelLocation> {
         match target {
-            DefinitionTarget::SourceSymbol { span, .. } => self
-                .resolve_import_alias_span(*span, snapshot)
-                .unwrap_or_else(|| vec![self.span_to_location(*span)]),
+            DefinitionTarget::SourceSymbol { symbol, span, .. } => {
+                if let Some(etas_hir::SymbolDef::ImportAlias { path, .. }) =
+                    snapshot.symbols.get(*symbol).map(|symbol| &symbol.def)
+                    && let Some(declaration) = snapshot.std_registry.lookup_qualified(path)
+                {
+                    return self.std_definition(declaration.id).into_iter().collect();
+                }
+                self.resolve_import_alias_span(*span, snapshot)
+                    .unwrap_or_else(|| vec![self.span_to_location(*span)])
+            }
             DefinitionTarget::Import(import_target) => {
                 self.resolve_import_target(import_target, snapshot)
             }
@@ -1491,10 +1594,38 @@ impl LanguageService {
                 // AstItemRef has a span directly
                 vec![self.span_to_location(item.span)]
             }
-            ImportTarget::StdItem { .. } | ImportTarget::ExternalItem { .. } => {
-                vec![]
+            ImportTarget::StdItem { symbol, .. } => {
+                self.std_definition(*symbol).into_iter().collect()
             }
+            ImportTarget::ExternalItem { .. } => vec![],
         }
+    }
+
+    fn std_definition(&self, symbol: etas_std::StdSymbolId) -> Option<IntelLocation> {
+        let StdProvider::Artifact(provider) = &self.std_provider else {
+            return None;
+        };
+        let binding = provider.registry.body_binding(symbol)?;
+        let item = provider
+            .sdk
+            .image
+            .declarations
+            .get(binding.callable.as_declaration()?)?;
+        let library = &provider.library.program;
+        let span = library.hir_item_bindings.hir_to_ast.get(item)?.span;
+        let source = library
+            .sources
+            .sources
+            .iter()
+            .find(|source| source.id == span.source)?;
+        Some(IntelLocation {
+            uri: path_to_uri(source.path.as_ref()?),
+            range: crate::syntax::definition_selection(
+                &crate::syntax::parse(source.text()),
+                span.range,
+            ),
+            source_text: source.text().to_owned(),
+        })
     }
 
     fn span_to_location(&self, span: etas_core::Span) -> IntelLocation {
@@ -1801,6 +1932,16 @@ fn collect_es_files(dir: &std::path::Path, paths: &mut Vec<PathBuf>) {
     }
 }
 
+fn std_session(provider: &StdProvider) -> FrontendSession {
+    match provider {
+        StdProvider::Legacy => FrontendSession::new(),
+        StdProvider::Artifact(provider) => {
+            FrontendSession::with_std_registry(provider.registry.clone())
+                .with_standard_library(provider.library.clone())
+        }
+    }
+}
+
 pub fn spawn_service_with_events() -> (
     tokio::sync::mpsc::UnboundedSender<Command>,
     tokio::sync::mpsc::UnboundedReceiver<Event>,
@@ -1835,12 +1976,29 @@ pub fn spawn_service_with_events() -> (
         .name("etas-analysis".into())
         .stack_size(8 * 1024 * 1024)
         .spawn(move || {
-            let mut service = LanguageService::new();
-            service.timer_tx = Some(arm_tx);
-            service.event_tx = Some(event_tx);
-
+            // The first command can choose artifact std before any legacy
+            // session is constructed. LSP initialization sends it before roots.
+            let mut service = None;
             while let Some(cmd) = rx.blocking_recv() {
+                let service = service.get_or_insert_with(|| {
+                    let provider = match &cmd {
+                        Command::SetStdProvider(provider) => provider.clone(),
+                        _ => StdProvider::Legacy,
+                    };
+                    let mut service = LanguageService::with_std_provider(provider);
+                    service.timer_tx = Some(arm_tx.clone());
+                    service.event_tx = Some(event_tx.clone());
+                    service
+                });
                 match cmd {
+                    Command::SetStdProvider(provider) => {
+                        service.std_provider = provider;
+                        if service.project_id.is_some() {
+                            service.rebuild_project();
+                        } else {
+                            service.session = std_session(&service.std_provider);
+                        }
+                    }
                     Command::SetWorkspaceRoot(path) => {
                         service.set_workspace_root(path);
                     }

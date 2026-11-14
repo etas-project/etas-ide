@@ -2564,3 +2564,126 @@ fn test_close_unchanged_project_file_keeps_checked_revision() {
     );
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn installed_std_provider_navigates_aliases_prelude_and_module_calls_after_relocation() {
+    let root = std::env::temp_dir().join(format!(
+        "etas-ide-std-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let source = root.join("std-source");
+    std::fs::create_dir_all(source.join("library/std/text")).unwrap();
+    std::fs::create_dir_all(source.join("library/std/prelude")).unwrap();
+    std::fs::write(source.join("etas.toml"), "[package]\nname = 'std'\nversion = '0.1.0'\nedition = '2026'\n[source]\nroot = 'library'\n").unwrap();
+    for (file, id) in [
+        ("assembly.es", etas_std::StdLibrarySourceId::TextAssembly),
+        ("format.es", etas_std::StdLibrarySourceId::TextFormat),
+    ] {
+        std::fs::write(
+            source.join("library/std/text").join(file),
+            etas_std::standard_library_source(id).source,
+        )
+        .unwrap();
+    }
+    std::fs::write(
+        source.join("library/std/text/extra.es"),
+        "module std.text; public flow newcomer<T>(value: T) -> T { return value; }",
+    )
+    .unwrap();
+    std::fs::write(
+        source.join("library/std/prelude/mod.es"),
+        "module std.prelude; public import std.text.newcomer as bundled;",
+    )
+    .unwrap();
+    etas_driver::build_standard_library(
+        &etas_driver::DriverOptions {
+            cache_mode: etas_driver::DriverCacheMode::Off,
+            ..Default::default()
+        },
+        etas_driver::StdLibraryBuildRequest {
+            manifest_path: source.join("etas.toml"),
+            out_dir: root.join("sdk/std"),
+        },
+    )
+    .unwrap();
+    let moved = root.join("moved");
+    std::fs::rename(root.join("sdk"), &moved).unwrap();
+    std::fs::remove_dir_all(source).unwrap();
+    let provider = StdProvider::artifact(Some(&moved)).unwrap();
+    let (tx, mut events) = spawn_service_with_events();
+    tx.send(Command::SetStdProvider(provider)).unwrap();
+    let app_root = root.join("application");
+    std::fs::create_dir_all(app_root.join("src/app")).unwrap();
+    std::fs::write(app_root.join("etas.toml"), "[package]\nname = 'consumer'\nversion = '0.1.0'\nedition = '2026'\n[source]\nroot = 'src'\n").unwrap();
+    let app = app_root.join("src/app/main.es");
+    let text = r#"module app.main;
+import std.text.{join as assemble, newcomer};
+import std.text as text;
+flow main(args: Array<string>) -> i32 {
+    let joined = assemble(["a", "b"], "|");
+    let copied = newcomer(joined);
+    let from_prelude = bundled(copied);
+    let from_module = text.join([from_prelude], "");
+    return 0;
+}
+"#;
+    std::fs::write(&app, text).unwrap();
+    let uri = path_to_uri(&app);
+    tx.send(Command::SetWorkspaceRoot(app_root)).unwrap();
+    tx.send(Command::OpenDocument {
+        uri: uri.clone(),
+        text: text.to_owned(),
+        version: 1,
+    })
+    .unwrap();
+    let wait_for_ready = |events: &mut tokio::sync::mpsc::UnboundedReceiver<Event>| {
+        loop {
+            if let Event::AnalysisStatus(status) = events.blocking_recv().unwrap() {
+                if matches!(status.phase, AnalysisPhase::Ready | AnalysisPhase::Failed) {
+                    assert_eq!(status.phase, AnalysisPhase::Ready, "{status:?}");
+                    assert_eq!(status.errors, 0, "{status:?}");
+                    break;
+                }
+            }
+        }
+    };
+    wait_for_ready(&mut events);
+    for (needle, token, file, declaration) in [
+        ("join as", "join", "assembly.es", "join"),
+        ("assemble(", "assemble", "assembly.es", "join"),
+        ("newcomer(joined)", "newcomer", "extra.es", "newcomer"),
+        ("bundled(copied)", "bundled", "extra.es", "newcomer"),
+        ("text.join", "join", "assembly.es", "join"),
+    ] {
+        let start = text.find(needle).unwrap() + needle.find(token).unwrap();
+        let before = &text[..start];
+        let line = before.bytes().filter(|byte| *byte == b'\n').count() as u32;
+        let character = before.rsplit('\n').next().unwrap().encode_utf16().count() as u32;
+        let locations = goto_def(&tx, &uri, line, character);
+        let expected = path_to_uri(&moved.join("std/library/std/text").join(file));
+        let location = locations
+            .iter()
+            .find(|location| location.uri == expected)
+            .unwrap_or_else(|| panic!("{needle}: {locations:?}"));
+        assert_eq!(
+            &location.source_text[location.range.start.0 as usize..location.range.end.0 as usize],
+            declaration
+        );
+    }
+    // Rebuilding a project must retain its selected std provider.
+    tx.send(Command::ReloadPackage).unwrap();
+    wait_for_ready(&mut events);
+    let locations = goto_def(&tx, &uri, 4, 18);
+    assert!(
+        locations
+            .iter()
+            .any(|location| location.uri.ends_with("/assembly.es")),
+        "{locations:?}"
+    );
+    drop(tx);
+    std::fs::remove_dir_all(root).unwrap();
+}

@@ -12,6 +12,21 @@ use etas_intel::{AnalysisStatus, Command, Event, LspPosition, LspRange, LspTextE
 
 use crate::conversions;
 
+#[derive(Default, serde::Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+struct StdInitializationOptions {
+    std_provider: StdProviderChoice,
+    sysroot: Option<std::path::PathBuf>,
+}
+
+#[derive(Default, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum StdProviderChoice {
+    #[default]
+    Legacy,
+    Artifact,
+}
+
 pub struct Backend {
     client: Client,
     service_tx: mpsc::UnboundedSender<Command>,
@@ -100,6 +115,23 @@ async fn publish_diagnostics(
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
     async fn initialize(&self, params: InitializeParams) -> LspResult<InitializeResult> {
+        let options: StdInitializationOptions = serde_json::from_value(
+            params
+                .initialization_options
+                .clone()
+                .unwrap_or_else(|| serde_json::json!({})),
+        )
+        .map_err(|error| tower_lsp::jsonrpc::Error::invalid_params(error.to_string()))?;
+        let provider = match options.std_provider {
+            StdProviderChoice::Legacy => etas_driver::std_library::provider::StdProvider::Legacy,
+            StdProviderChoice::Artifact => {
+                etas_driver::std_library::provider::StdProvider::artifact(
+                    options.sysroot.as_deref(),
+                )
+                .map_err(|error| tower_lsp::jsonrpc::Error::invalid_params(error.to_string()))?
+            }
+        };
+        let _ = self.service_tx.send(Command::SetStdProvider(provider));
         let root = params
             .workspace_folders
             .and_then(|folders| folders.into_iter().next())

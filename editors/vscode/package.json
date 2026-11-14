@@ -3,7 +3,7 @@
   "displayName": "Etas",
   "icon": "images/etas_icon-small-mod.png",
   "description": "Etas language support for Visual Studio Code",
-  "version": "0.3.5",
+  "version": "0.4.0",
   "publisher": "etas-project",
   "license": "MIT OR Apache-2.0",
   "repository": {
@@ -78,6 +78,20 @@
           ],
           "default": "off",
           "description": "LSP server trace verbosity"
+        },
+        "etas.stdProvider": {
+          "type": "string",
+          "enum": [
+            "legacy",
+            "artifact"
+          ],
+          "default": "legacy",
+          "description": "Standard library provider for the language server."
+        },
+        "etas.sysroot": {
+          "type": "string",
+          "default": "",
+          "description": "SDK directory containing std/manifest.json. Empty uses the server installation prefix."
         }
       }
     }

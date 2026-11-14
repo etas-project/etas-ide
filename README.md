@@ -86,6 +86,33 @@ ranges and token deltas use UTF-16, including multiline comments/strings.
 Package preparation errors are published explicitly; they do not silently turn
 an invalid package into a checked standalone file.
 
+## Installed Standard Library
+
+The release default is the legacy provider. To analyze the same verified std SDK
+as the CLI, configure the VS Code extension:
+
+```json
+{
+  "etas.stdProvider": "artifact",
+  "etas.sysroot": "/path/to/sysroot"
+}
+```
+
+The sysroot contains `std/manifest.json`, matching artifacts and Etas sources.
+Other LSP clients pass `{"stdProvider":"artifact","sysroot":"/path/to/sysroot"}`
+as `initializationOptions`. Omitting the sysroot uses the language server's
+installation prefix, with the same toolchain ID and layout as the CLI.
+Incompatible or missing explicit SDKs fail initialization with the loader's
+path and compatibility diagnostic.
+
+One provider is retained across project switches and package reloads. Source
+flow completion, hover, semantic tokens and go-to-definition use that session's
+query view. Definitions follow aliases and prelude re-exports to the installed
+`.es` declaration, using its own source map. Starting from a relocated prefix
+works after the original development sources have been removed. Changing either extension setting restarts
+the server to select a fresh provider session. Rebuilding an SDK can be picked up
+with **Etas: Restart Server**.
+
 ## Repository Layout
 
 ```text
