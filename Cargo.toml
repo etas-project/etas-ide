@@ -16,15 +16,15 @@ etas_intel = { path = "crates/etas_intel" }
 etas_lsp = { path = "crates/etas_lsp" }
 
 # Cross-repo dependencies via git (same pattern as other workspaces)
-etas_core = { git = "https://github.com/etas-project/etas-core.git", rev = "63c70c15c7413709456bd42eb468dd0bac473e64", package = "etas_core" }
-etas_std = { git = "https://github.com/etas-project/etas-core.git", rev = "63c70c15c7413709456bd42eb468dd0bac473e64", package = "etas_std" }
-etas_effects = { git = "https://github.com/etas-project/etas-frontend.git", rev = "d78efa77db42a38c22fafa580e638a80c3e11b28", package = "etas_effects" }
-etas_frontend = { git = "https://github.com/etas-project/etas-frontend.git", rev = "d78efa77db42a38c22fafa580e638a80c3e11b28", package = "etas_frontend" }
-etas_hir = { git = "https://github.com/etas-project/etas-frontend.git", rev = "d78efa77db42a38c22fafa580e638a80c3e11b28", package = "etas_hir" }
-etas_driver = { git = "https://github.com/etas-project/etas.git", rev = "aa573ff0b02a7415ac390f24f69fa7a5da4b45cf", package = "etas_driver" }
-etas_package = { git = "https://github.com/etas-project/etas.git", rev = "aa573ff0b02a7415ac390f24f69fa7a5da4b45cf", package = "etas_package" }
-etas_types = { git = "https://github.com/etas-project/etas-frontend.git", rev = "d78efa77db42a38c22fafa580e638a80c3e11b28", package = "etas_types" }
-etas_syntax = { git = "https://github.com/etas-project/etas-frontend.git", rev = "d78efa77db42a38c22fafa580e638a80c3e11b28", package = "etas_syntax" }
+etas_core = { git = "https://github.com/etas-project/etas-core.git", rev = "160d3509cfbdc866778b711ad8c6bfe6ab3772f8", package = "etas_core" }
+etas_std = { git = "https://github.com/etas-project/etas-core.git", rev = "160d3509cfbdc866778b711ad8c6bfe6ab3772f8", package = "etas_std" }
+etas_effects = { git = "https://github.com/etas-project/etas-frontend.git", rev = "28a5d20ca8fc7c1e3bfd94e8ca40a131eae45887", package = "etas_effects" }
+etas_frontend = { git = "https://github.com/etas-project/etas-frontend.git", rev = "28a5d20ca8fc7c1e3bfd94e8ca40a131eae45887", package = "etas_frontend" }
+etas_hir = { git = "https://github.com/etas-project/etas-frontend.git", rev = "28a5d20ca8fc7c1e3bfd94e8ca40a131eae45887", package = "etas_hir" }
+etas_driver = { git = "https://github.com/etas-project/etas.git", rev = "52920f8daec72ce8a493d3640d2ad9990870a149", package = "etas_driver" }
+etas_package = { git = "https://github.com/etas-project/etas.git", rev = "52920f8daec72ce8a493d3640d2ad9990870a149", package = "etas_package" }
+etas_types = { git = "https://github.com/etas-project/etas-frontend.git", rev = "28a5d20ca8fc7c1e3bfd94e8ca40a131eae45887", package = "etas_types" }
+etas_syntax = { git = "https://github.com/etas-project/etas-frontend.git", rev = "28a5d20ca8fc7c1e3bfd94e8ca40a131eae45887", package = "etas_syntax" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

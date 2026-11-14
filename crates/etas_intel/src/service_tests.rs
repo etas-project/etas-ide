@@ -2576,6 +2576,12 @@ fn installed_std_provider_navigates_aliases_prelude_and_module_calls_after_reloc
             .as_nanos()
     ));
     let source = root.join("std-source");
+    std::fs::create_dir_all(source.join("library/std/core")).unwrap();
+    std::fs::write(
+        source.join("library/std/core/mod.es"),
+        "module std.core; @std.role(\"std.core.Index\") public spec Index; impl usize ~ Index;",
+    )
+    .unwrap();
     std::fs::create_dir_all(source.join("library/std/text")).unwrap();
     std::fs::create_dir_all(source.join("library/std/prelude")).unwrap();
     std::fs::write(source.join("etas.toml"), "[package]\nname = 'std'\nversion = '0.1.0'\nedition = '2026'\n[source]\nroot = 'library'\n").unwrap();

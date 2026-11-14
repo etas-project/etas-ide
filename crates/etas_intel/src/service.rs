@@ -926,6 +926,7 @@ impl LanguageService {
 
         let (tx, rx) = std::sync::mpsc::channel();
         let prepare_root = root.clone();
+        let std_provider = self.std_provider.clone();
         std::thread::spawn(move || {
             let result = etas_package::prepare_package(etas_package::PreparePackageOptions {
                 package_root: prepare_root,
@@ -942,7 +943,8 @@ impl LanguageService {
                         .expect("prepared package identity"),
                 )
                 .map_err(|error| error.to_string())?;
-                etas_driver::package_env::frontend_environment(prepared.environment.clone())
+                std_provider
+                    .frontend_environment(prepared.environment.clone())
                     .map_err(|error| error.to_string())
                     .map(|mut environment| {
                         environment.local_source_package = Some(package);
@@ -1982,6 +1984,9 @@ fn collect_es_files(dir: &std::path::Path, paths: &mut Vec<PathBuf>) {
 fn std_session(provider: &StdProvider) -> FrontendSession {
     match provider {
         StdProvider::Legacy => FrontendSession::new(),
+        StdProvider::SourceBootstrap(registry) => {
+            FrontendSession::with_std_registry(registry.clone())
+        }
         StdProvider::Artifact(provider) => {
             FrontendSession::with_std_registry(provider.registry.clone())
                 .with_standard_library(provider.library.clone())
