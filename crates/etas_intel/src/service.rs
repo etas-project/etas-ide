@@ -1590,9 +1590,14 @@ impl LanguageService {
                     .get(*module)
                     .map(|info| vec![self.span_to_location(info.span)])
                     .unwrap_or_default(),
-                ResolvedModuleTarget::Std { .. } | ResolvedModuleTarget::External { .. } => {
-                    vec![]
-                }
+                // A std path may name both a module and a callable, such as runtime.checkpoint.
+                ResolvedModuleTarget::Std { path, .. } => snapshot
+                    .std_registry
+                    .lookup_qualified(&path.segments)
+                    .and_then(|symbol| self.std_definition(symbol.id))
+                    .into_iter()
+                    .collect(),
+                ResolvedModuleTarget::External { .. } => vec![],
             },
             ImportTarget::SourceItem { item, .. } => {
                 // AstItemRef has a span directly

@@ -2576,30 +2576,24 @@ fn installed_std_provider_navigates_aliases_prelude_and_module_calls_after_reloc
             .as_nanos()
     ));
     let source = root.join("std-source");
-    std::fs::create_dir_all(source.join("library/std/core")).unwrap();
-    std::fs::write(
-        source.join("library/std/core/mod.es"),
-        "module std.core; @std.role(\"std.core.Index\") public spec Index; impl usize ~ Index;",
-    )
-    .unwrap();
-    std::fs::create_dir_all(source.join("library/std/text")).unwrap();
-    std::fs::create_dir_all(source.join("library/std/prelude")).unwrap();
-    std::fs::write(source.join("etas.toml"), "[package]\nname = 'std'\nversion = '0.1.0'\nedition = '2026'\n[source]\nroot = 'library'\n").unwrap();
-    for (file, id) in [
-        ("assembly.es", etas_std::StdLibrarySourceId::TextAssembly),
-        ("format.es", etas_std::StdLibrarySourceId::TextFormat),
-    ] {
-        std::fs::write(
-            source.join("library/std/text").join(file),
-            etas_std::standard_library_source(id).source,
-        )
-        .unwrap();
+    fn copy_tree(from: &std::path::Path, to: &std::path::Path) {
+        std::fs::create_dir_all(to).unwrap();
+        for entry in std::fs::read_dir(from).unwrap() {
+            let entry = entry.unwrap();
+            let destination = to.join(entry.file_name());
+            if entry.file_type().unwrap().is_dir() {
+                copy_tree(&entry.path(), &destination);
+            } else {
+                std::fs::copy(entry.path(), destination).unwrap();
+            }
+        }
     }
-    let algorithms = etas_std::library::source_checkout_manifest()
-        .parent()
-        .unwrap()
-        .join("library/std/text/native.es");
-    std::fs::copy(algorithms, source.join("library/std/text/native.es")).unwrap();
+    let manifest = etas_std::library::source_checkout_manifest();
+    copy_tree(
+        &manifest.parent().unwrap().join("library"),
+        &source.join("library"),
+    );
+    std::fs::copy(manifest, source.join("etas.toml")).unwrap();
     std::fs::write(
         source.join("library/std/text/extra.es"),
         r#"module std.text;
@@ -2610,7 +2604,7 @@ public enum Reply<T> { Empty, Item(T), Named { value: T }, }
     )
     .unwrap();
     std::fs::write(
-        source.join("library/std/prelude/mod.es"),
+        source.join("library/std/prelude/added.es"),
         "module std.prelude; public import std.text.newcomer as bundled;",
     )
     .unwrap();
@@ -2638,6 +2632,7 @@ public enum Reply<T> { Empty, Item(T), Named { value: T }, }
     let text = r#"module app.main;
 import std.text.{join as assemble, newcomer, Parcel, Reply};
 import std.text as text;
+import std.runtime.checkpoint as capture;
 flow main(args: Array<string>) -> i32 {
     let joined = assemble(["a", "b"], "|");
     let copied = newcomer(joined);
@@ -2645,6 +2640,7 @@ flow main(args: Array<string>) -> i32 {
     let from_module = text.join([from_prelude], "");
     let parcel: Parcel<string> = Parcel { value = from_module };
     let reply: Reply<string> = Reply.Named { value = parcel.value };
+    capture(0);
     return 0;
 }
 "#;
@@ -2670,21 +2666,22 @@ flow main(args: Array<string>) -> i32 {
     };
     wait_for_ready(&mut events);
     for (needle, token, file, declaration) in [
-        ("join as", "join", "assembly.es", "join"),
-        ("assemble(", "assemble", "assembly.es", "join"),
-        ("newcomer(joined)", "newcomer", "extra.es", "newcomer"),
-        ("bundled(copied)", "bundled", "extra.es", "newcomer"),
-        ("text.join", "join", "assembly.es", "join"),
-        ("Parcel<string>", "Parcel", "extra.es", "Parcel"),
-        ("Reply<string>", "Reply", "extra.es", "Reply"),
-        ("Reply.Named", "Named", "extra.es", "Named"),
+        ("join as", "join", "text/assembly.es", "join"),
+        ("assemble(", "assemble", "text/assembly.es", "join"),
+        ("newcomer(joined)", "newcomer", "text/extra.es", "newcomer"),
+        ("capture(0)", "capture", "runtime/mod.es", "checkpoint"),
+        ("bundled(copied)", "bundled", "text/extra.es", "newcomer"),
+        ("text.join", "join", "text/assembly.es", "join"),
+        ("Parcel<string>", "Parcel", "text/extra.es", "Parcel"),
+        ("Reply<string>", "Reply", "text/extra.es", "Reply"),
+        ("Reply.Named", "Named", "text/extra.es", "Named"),
     ] {
         let start = text.find(needle).unwrap() + needle.find(token).unwrap();
         let before = &text[..start];
         let line = before.bytes().filter(|byte| *byte == b'\n').count() as u32;
         let character = before.rsplit('\n').next().unwrap().encode_utf16().count() as u32;
         let locations = goto_def(&tx, &uri, line, character);
-        let expected = path_to_uri(&moved.join("std/library/std/text").join(file));
+        let expected = path_to_uri(&moved.join("std/library/std").join(file));
         let location = locations
             .iter()
             .find(|location| location.uri == expected)
@@ -2697,7 +2694,7 @@ flow main(args: Array<string>) -> i32 {
     // Rebuilding a project must retain its selected std provider.
     tx.send(Command::ReloadPackage).unwrap();
     wait_for_ready(&mut events);
-    let locations = goto_def(&tx, &uri, 4, 18);
+    let locations = goto_def(&tx, &uri, 5, 18);
     assert!(
         locations
             .iter()
