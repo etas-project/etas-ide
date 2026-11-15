@@ -2595,6 +2595,11 @@ fn installed_std_provider_navigates_aliases_prelude_and_module_calls_after_reloc
         )
         .unwrap();
     }
+    let algorithms = etas_std::library::source_checkout_manifest()
+        .parent()
+        .unwrap()
+        .join("library/std/text/native.es");
+    std::fs::copy(algorithms, source.join("library/std/text/native.es")).unwrap();
     std::fs::write(
         source.join("library/std/text/extra.es"),
         r#"module std.text;
