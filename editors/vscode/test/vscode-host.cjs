@@ -154,10 +154,10 @@ async function run() {
             result => result?.visible && result.connection === 'running' && result.phase === 'ready' && result.errors === 0 && result.initialSyncComplete,
             'status bar must reflect the completed analysis');
         assert.ok(status.text.includes('$(check)'), JSON.stringify(status));
-        assert.ok(status.tooltip.includes('Frontend: 0.11.16 @ ef6eb043'), status.tooltip);
-        assert.ok(status.tooltip.includes('Core: 0.2.1 @ 01f37062'), status.tooltip);
-        assert.ok(status.tooltip.includes('Std: 0.2.17 @ 01f37062'), status.tooltip);
-        assert.ok(status.tooltip.includes('Driver: 0.2.17 @ b43d38c5'), status.tooltip);
+        assert.ok(status.tooltip.includes('Frontend: 0.11.17 @ 7155eaf5'), status.tooltip);
+        assert.ok(status.tooltip.includes('Core: 0.2.1 @ 16d3491f'), status.tooltip);
+        assert.ok(status.tooltip.includes('Std: 0.2.18 @ 16d3491f'), status.tooltip);
+        assert.ok(status.tooltip.includes('Driver: 0.2.18 @ 298d532d'), status.tooltip);
         assert.equal(typeof status.elapsedMs, 'number');
         const plain = await vscode.workspace.openTextDocument({ language: 'plaintext', content: 'status visibility probe' });
         await vscode.window.showTextDocument(plain);
@@ -169,7 +169,7 @@ async function run() {
         assert.ok(registered.includes('etas.showStatus'));
         await vscode.commands.executeCommand('etas.restartServer');
         await eventually(() => extension.exports.analysisStatus(),
-            result => result?.visible && result.connection === 'running' && result.phase === 'ready' && result.build?.server === '0.4.17' && result.initialSyncComplete,
+            result => result?.visible && result.connection === 'running' && result.phase === 'ready' && result.build?.server === '0.4.18' && result.initialSyncComplete,
             'status must recover after a language-server restart');
         const hovers = await eventually(
             () => vscode.commands.executeCommand('vscode.executeHoverProvider', uri, doc.positionAt(valid.indexOf('square(4)'))),
