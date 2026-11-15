@@ -385,8 +385,8 @@ dependencies = [
 
 [[package]]
 name = "etas_driver"
-version = "0.2.18"
-source = "git+https://github.com/etas-project/etas.git?rev=298d532dabec4aa566ee0502eef6825b68ae3e16#298d532dabec4aa566ee0502eef6825b68ae3e16"
+version = "0.2.19"
+source = "git+https://github.com/etas-project/etas.git?rev=ba4e4d0727d836d74a46bd527bc35faf437d1616#ba4e4d0727d836d74a46bd527bc35faf437d1616"
 dependencies = [
  "blake3",
  "etas_code",
@@ -501,7 +501,7 @@ dependencies = [
 
 [[package]]
 name = "etas_intel"
-version = "0.4.18"
+version = "0.4.19"
 dependencies = [
  "blake3",
  "etas_core",
@@ -521,7 +521,7 @@ dependencies = [
 
 [[package]]
 name = "etas_lsp"
-version = "0.4.18"
+version = "0.4.19"
 dependencies = [
  "etas_core",
  "etas_driver",
@@ -547,7 +547,7 @@ dependencies = [
 [[package]]
 name = "etas_package"
 version = "0.2.5"
-source = "git+https://github.com/etas-project/etas.git?rev=298d532dabec4aa566ee0502eef6825b68ae3e16#298d532dabec4aa566ee0502eef6825b68ae3e16"
+source = "git+https://github.com/etas-project/etas.git?rev=ba4e4d0727d836d74a46bd527bc35faf437d1616#ba4e4d0727d836d74a46bd527bc35faf437d1616"
 dependencies = [
  "blake3",
  "etas_code",

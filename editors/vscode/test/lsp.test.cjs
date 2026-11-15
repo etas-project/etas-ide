@@ -42,14 +42,14 @@ test('current compiler: agent-scoped infer, build identity, and analysis status 
     t.after(async () => { await client.stop(); fs.rmSync(root, { recursive: true, force: true }); });
     const initialized = await client.initialize(pathToFileURL(root).href);
     const build = initialized.capabilities.experimental.etasBuild;
-    assert.equal(build.server, '0.4.18');
+    assert.equal(build.server, '0.4.19');
     assert.equal(build.frontend.version, '0.11.17');
     assert.equal(build.frontend.revision, '7155eaf5435794f11b8282d11d6e76f824ec4630');
     assert.equal(build.core.revision, '16d3491f61182061f87064d663c20c945b501b60');
     assert.equal(build.std.version, '0.2.18');
     assert.equal(build.std.revision, build.core.revision);
-    assert.equal(build.driver.version, '0.2.18');
-    assert.equal(build.driver.revision, '298d532dabec4aa566ee0502eef6825b68ae3e16');
+    assert.equal(build.driver.version, '0.2.19');
+    assert.equal(build.driver.revision, 'ba4e4d0727d836d74a46bd527bc35faf437d1616');
     assert.equal((await client.request('etas/analysisStatus')).phase, 'idle');
     const uri = pathToFileURL(path.join(root, 'main.es')).href;
     const text = 'module agents;\nagent Probe(input: string) -> string { return perform infer<string>(Prompt.new().system(Trusted("Echo the input")).data(input)); }\nflow main() -> i32 { return 0; }\n';
