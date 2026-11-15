@@ -157,7 +157,7 @@ async function run() {
         assert.ok(status.tooltip.includes('Frontend: 0.11.12 @ 865a3a1e'), status.tooltip);
         assert.ok(status.tooltip.includes('Core: 0.2.1 @ 96919646'), status.tooltip);
         assert.ok(status.tooltip.includes('Std: 0.2.8 @ 96919646'), status.tooltip);
-        assert.ok(status.tooltip.includes('Driver: 0.2.7 @ ddd5b6c9'), status.tooltip);
+        assert.ok(status.tooltip.includes('Driver: 0.2.7 @ 5a8c00ad'), status.tooltip);
         assert.equal(typeof status.elapsedMs, 'number');
         const plain = await vscode.workspace.openTextDocument({ language: 'plaintext', content: 'status visibility probe' });
         await vscode.window.showTextDocument(plain);
@@ -169,7 +169,7 @@ async function run() {
         assert.ok(registered.includes('etas.showStatus'));
         await vscode.commands.executeCommand('etas.restartServer');
         await eventually(() => extension.exports.analysisStatus(),
-            result => result?.visible && result.connection === 'running' && result.phase === 'ready' && result.build?.server === '0.4.12' && result.initialSyncComplete,
+            result => result?.visible && result.connection === 'running' && result.phase === 'ready' && result.build?.server === '0.4.13' && result.initialSyncComplete,
             'status must recover after a language-server restart');
         const hovers = await eventually(
             () => vscode.commands.executeCommand('vscode.executeHoverProvider', uri, doc.positionAt(valid.indexOf('square(4)'))),
