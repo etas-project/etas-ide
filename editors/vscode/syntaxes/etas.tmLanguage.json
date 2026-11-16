@@ -43,6 +43,13 @@
     "declarations": {
       "patterns": [
         {
+          "match": "\\b(action)\\s*<[^;{}]*?>\\s+([\\p{L}_][\\p{L}\\p{N}_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.etas" },
+            "2": { "name": "entity.name.function.etas" }
+          }
+        },
+        {
           "match": "\\b(flow|tool|agent|action)\\s+([\\p{L}_][\\p{L}\\p{N}_]*)",
           "captures": {
             "1": { "name": "keyword.declaration.etas" },

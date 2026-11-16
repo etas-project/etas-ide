@@ -52,9 +52,17 @@ pub(crate) fn hover(
         .filter_map(|(id, origin)| {
             let span = origin.span();
             let symbol = snapshot.symbols.get(*id)?;
+            let declaration_name = if symbol.kind == SymbolKind::EffectAction {
+                symbol.name.rsplit('.').next().unwrap_or(&symbol.name)
+            } else {
+                &symbol.name
+            };
             (span.source == doc.source_id
-                && crate::syntax::identifier_range(&parsed, symbol.definition_span, &symbol.name)
-                    == Some(range))
+                && crate::syntax::identifier_range(
+                    &parsed,
+                    symbol.definition_span,
+                    declaration_name,
+                ) == Some(range))
             .then_some((span.range.end.0 - span.range.start.0, symbol))
         })
         .min_by_key(|(len, _)| *len);
@@ -389,9 +397,19 @@ impl Printer<'_> {
                 format!("type {}{}{repr}", symbol.name, type_params(params))
             }
             Some(SymbolTypeFact::EffectAction { signature }) => {
-                return Some(code(&self.callable(
-                    "action",
-                    &symbol.name,
+                let (prefix, selectors): (Vec<_>, Vec<_>) = signature
+                    .generic_params
+                    .iter()
+                    .cloned()
+                    .partition(|param| !signature.selector_param_names.contains(&param.name));
+                let header = format!(
+                    "action{} {}{}",
+                    self.generic_params(&prefix),
+                    symbol.name,
+                    self.generic_params(&selectors)
+                );
+                return Some(code(&self.callable_with_header(
+                    &header,
                     &CallableSignature {
                         generic_params: signature.generic_params.clone(),
                         params: signature.params.clone(),
@@ -429,11 +447,23 @@ impl Printer<'_> {
         signature: &CallableSignature,
         names: &[String],
     ) -> String {
+        let header = format!(
+            "{keyword} {name}{}",
+            self.generic_params(&signature.generic_params)
+        );
+        self.callable_with_header(&header, signature, names)
+    }
+
+    fn callable_with_header(
+        &self,
+        header: &str,
+        signature: &CallableSignature,
+        names: &[String],
+    ) -> String {
         let printer = Printer {
             snapshot: self.snapshot,
             generics: &signature.generic_params,
         };
-        let generics = printer.generic_params(&signature.generic_params);
         let params = signature
             .params
             .iter()
@@ -453,7 +483,7 @@ impl Printer<'_> {
             .map(|row| format!(" {}", printer.row(row)))
             .unwrap_or_default();
         format!(
-            "{keyword} {name}{generics}({params}) -> {}{row}",
+            "{header}({params}) -> {}{row}",
             printer.ty(signature.output)
         )
     }
@@ -652,6 +682,7 @@ fn type_name(
         Some(Type::Map { key, value }) => format!("Map<{}, {}>", inner(*key), inner(*value)),
         Some(Type::Set(ty)) => format!("Set<{}>", inner(*ty)),
         Some(Type::Option(ty)) => format!("Option<{}>", inner(*ty)),
+        Some(Type::Schema(ty)) => format!("Schema<{}>", inner(*ty)),
         Some(Type::Result { ok, err }) => format!("Result<{}, {}>", inner(*ok), inner(*err)),
         Some(Type::Tuple(types)) => format!("({})", args(types)),
         Some(Type::Record(record)) => format!(

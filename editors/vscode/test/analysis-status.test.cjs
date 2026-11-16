@@ -10,11 +10,11 @@ const compiled = new Module(file, module);
 compiled._compile(transformSync(fs.readFileSync(file, 'utf8'), { loader: 'ts', format: 'cjs' }).code, file);
 const { idleStatus, statusView, duration } = compiled.exports;
 const build = {
-    server: '0.4.29', frontend: { version: '0.11.27', revision: 'e1257db2abcdef' },
-    core: { version: '0.2.1', revision: '0c90607dabcdef' }, driver: { version: '0.2.29', revision: '4339ba4babcdef' },
-    std: { version: '0.2.27', revision: '0c90607dabcdef' },
+    server: '0.5.0', frontend: { version: '0.12.0', revision: 'd2e6840eabcdef' },
+    core: { version: '0.2.1', revision: '113a5e01abcdef' }, driver: { version: '0.3.0', revision: '7e048b1fabcdef' },
+    std: { version: '0.3.0', revision: '113a5e01abcdef' },
 };
-const view = (status, connection = 'running', info = build) => statusView({ ...idleStatus, ...status }, connection, info, '0.4.29', '/server/etas-lsp');
+const view = (status, connection = 'running', info = build) => statusView({ ...idleStatus, ...status }, connection, info, '0.5.0', '/server/etas-lsp');
 
 test('analysis status distinguishes actual worker stages from startup and disconnection', () => {
     for (const [phase, label] of [['queued', 'Waiting'], ['preparing', 'Loading'], ['checking', 'Analyzing'], ['failed', 'Unavailable']]) {
@@ -36,13 +36,13 @@ test('diagnostic counts and completed durations are never confused with server f
 
 test('tooltip identifies the project and Cargo-locked producers, not an assumed CLI version', () => {
     const state = view({ phase: 'failed', projectRoot: '/project/nomo', files: 95, errors: 1, message: 'Invalid manifest' });
-    for (const expected of ['/project/nomo', '95', 'e1257db2', '0c90607d', '4339ba4b', '0.4.29', 'Invalid manifest', '/server/etas-lsp']) {
+    for (const expected of ['/project/nomo', '95', 'd2e6840e', '113a5e01', '7e048b1f', '0.5.0', 'Invalid manifest', '/server/etas-lsp']) {
         assert.ok(state.tooltip.includes(expected), expected);
     }
-    const unknown = statusView(idleStatus, 'running', undefined, '0.4.29', '/custom/server');
+    const unknown = statusView(idleStatus, 'running', undefined, '0.5.0', '/custom/server');
     assert.ok(unknown.tooltip.includes('Frontend: Not reported'));
-    assert.ok(!unknown.tooltip.includes('e1257db2'));
-    const older = statusView(idleStatus, 'running', { ...build, std: undefined }, '0.4.29', '/custom/server');
+    assert.ok(!unknown.tooltip.includes('d2e6840e'));
+    const older = statusView(idleStatus, 'running', { ...build, std: undefined }, '0.5.0', '/custom/server');
     assert.ok(older.tooltip.includes('Core: 0.2.1'));
     assert.ok(older.tooltip.includes('Std: Not reported'));
 });

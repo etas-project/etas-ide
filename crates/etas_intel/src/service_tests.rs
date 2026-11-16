@@ -2704,3 +2704,21 @@ flow main(args: Array<string>) -> i32 {
     drop(tx);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn hover_distinguishes_action_signature_generics_from_selectors() {
+    let tx = spawn_service();
+    let uri = "file:///hover_action_generics.es";
+    let source = r#"module hover;
+effect Examples {
+    action<T, effect E> await(task: Task<T, ![E]>) -> T;
+    action<T> select<Key>(key: Key, value: T) -> T;
+    action choose<Output>(schema: Schema<Output>) -> Output;
+}
+flow main() -> i32 { return 0; }
+"#;
+    assert_checked(&tx, uri, source);
+    assert_hover(hover_at(&tx, uri, source, "await(task"), "action<T, effect E> Examples.await(Task<T, ![E]>) -> T");
+    assert_hover(hover_at(&tx, uri, source, "select<Key>"), "action<T> Examples.select<Key>(Key, T) -> T");
+    assert_hover(hover_at(&tx, uri, source, "choose<Output>"), "action Examples.choose<Output>(Schema<Output>) -> Output");
+}
