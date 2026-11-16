@@ -2,6 +2,10 @@
 
 All notable changes to the "etas" extension will be documented in this file.
 
+## 0.5.2 - 2026-11-16
+
+- Align with std 0.3.1 and frontend 0.12.2; installed Console and I/O declarations navigate to their Etas source, including the prelude IOError re-export.
+
 ## 0.3.5 - 2026-11-04
 
 - Update the bundled frontend to 0.3.1 (`5fad86c4`), std to 0.1.4 (`563dedc1`), and driver to 0.1.5 (`c5af4eb8`), matching the published CLI dependency set.

@@ -2632,7 +2632,7 @@ public enum Reply<T> { Empty, Item(T), Named { value: T }, }
     let text = r#"module app.main;
 import std.text.{join as assemble, newcomer, Parcel, Reply};
 import std.text as text;
-import std.runtime.checkpoint as capture;
+import std.runtime.checkpoint as capture; import std.io.println as output;
 flow main(args: Array<string>) -> i32 {
     let joined = assemble(["a", "b"], "|");
     let copied = newcomer(joined);
@@ -2640,6 +2640,8 @@ flow main(args: Array<string>) -> i32 {
     let from_module = text.join([from_prelude], "");
     let parcel: Parcel<string> = Parcel { value = from_module };
     let reply: Reply<string> = Reply.Named { value = parcel.value };
+    let log = output;
+    let failure: Option<IOError> = None;
     capture(0);
     return 0;
 }
@@ -2675,6 +2677,8 @@ flow main(args: Array<string>) -> i32 {
         ("Parcel<string>", "Parcel", "text/extra.es", "Parcel"),
         ("Reply<string>", "Reply", "text/extra.es", "Reply"),
         ("Reply.Named", "Named", "text/extra.es", "Named"),
+        ("log = output", "output", "io/mod.es", "println"),
+        ("Option<IOError>", "IOError", "io/mod.es", "IOError"),
     ] {
         let start = text.find(needle).unwrap() + needle.find(token).unwrap();
         let before = &text[..start];
