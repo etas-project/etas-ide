@@ -1283,6 +1283,11 @@ impl LanguageService {
 
         let offset = offset_of_position(&doc.text, position);
         let target_offset = TextSize(offset as u32);
+        if let Some(location) =
+            self.std_action_definition_at(source_id, offset, &doc.text, snapshot)
+        {
+            return vec![location];
+        }
         if let Some(locations) =
             self.resolve_path_item_at_offset(source_id, offset, &doc.text, snapshot)
         {
@@ -1615,6 +1620,23 @@ impl LanguageService {
             return None;
         };
         let declaration = provider.registry.symbol(symbol)?;
+        let library = &provider.library.program;
+        if matches!(declaration.decl, etas_std::StdDecl::EffectAction(_)) {
+            let source =
+                library
+                    .hir
+                    .standard_action_targets
+                    .iter()
+                    .find_map(|(source, target)| {
+                        (*target == symbol
+                            && matches!(
+                                library.symbols.get(*source)?.def,
+                                etas_hir::SymbolDef::EffectAction { .. }
+                            ))
+                        .then_some(*source)
+                    })?;
+            return self.std_source_location(library.symbols.get(source)?.definition_span);
+        }
         let owner = declaration.enum_owner.unwrap_or(symbol);
         let item = provider
             .sdk
@@ -1637,6 +1659,47 @@ impl LanguageService {
             library.hir_item_bindings.hir_to_ast.get(item)?.span
         };
         self.std_source_location(span)
+    }
+
+    fn std_action_definition_at(
+        &self,
+        source: SourceId,
+        offset: usize,
+        text: &str,
+        snapshot: &ProjectSemanticSnapshot,
+    ) -> Option<IntelLocation> {
+        let path = path_at_offset(text, offset)?;
+        let token = path.segments.get(path.segment_index)?;
+        let mut actions = snapshot
+            .hir
+            .exprs
+            .iter()
+            .filter_map(|(_, expr)| match expr {
+                etas_hir::HirExpr::Perform { action, .. }
+                | etas_hir::HirExpr::Infer { action, .. } => Some(action),
+                _ => None,
+            })
+            .chain(snapshot.hir.handler_arms.iter().map(|(_, arm)| &arm.action));
+        let action = actions.find(|action| {
+            action.action == *token && span_contains_offset(action.span, source, offset)
+        })?;
+        let etas_hir::ResolveResult::Resolved(symbol) = action.action_symbol else {
+            return None;
+        };
+        let target = snapshot
+            .hir
+            .standard_action_targets
+            .get(&symbol)
+            .copied()
+            .or_else(|| {
+                let etas_hir::SymbolDef::ImportAlias { path, .. } =
+                    &snapshot.symbols.get(symbol)?.def
+                else {
+                    return None;
+                };
+                Some(snapshot.std_registry.lookup_qualified(path)?.id)
+            })?;
+        self.std_definition(target)
     }
 
     fn std_method_definition(
