@@ -1,12 +1,16 @@
 [package]
 name = "etas_intel"
-version = "0.3.5"
+version = "0.5.4"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+forbid-legacy-std = ["etas_driver/forbid-legacy-std"]
+
 [dependencies]
+etas_code.workspace = true
 etas_core.workspace = true
 etas_std.workspace = true
 etas_driver.workspace = true

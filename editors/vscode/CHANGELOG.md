@@ -2,6 +2,17 @@
 
 All notable changes to the "etas" extension will be documented in this file.
 
+## 0.5.4 - 2026-11-19
+
+- Bundle the Linux language server and its matching Etas standard library in the VSIX. The language server uses the SDK by default and opens standard-library declarations in their installed source files.
+- Show the selected source method and its concrete argument types on hover. Keep diagnostics available while editing a file before its first save.
+- Rebuild package interfaces and retry package preparation when selecting a standard-library provider, discarding metadata prepared under the previous SDK.
+- Validate language-server compiler versions and revisions against the current Cargo lockfile.
+
+## 0.5.2 - 2026-11-16
+
+- Align with std 0.3.1 and frontend 0.12.2; installed Console and I/O declarations navigate to their Etas source, including the prelude IOError re-export.
+
 ## 0.3.5 - 2026-11-04
 
 - Update the bundled frontend to 0.3.1 (`5fad86c4`), std to 0.1.4 (`563dedc1`), and driver to 0.1.5 (`c5af4eb8`), matching the published CLI dependency set.

@@ -1,10 +1,13 @@
 [package]
 name = "etas_lsp"
-version = "0.3.5"
+version = "0.5.4"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+
+[features]
+forbid-legacy-std = ["etas_intel/forbid-legacy-std"]
 
 [[bin]]
 name = "etas-lsp"
@@ -12,6 +15,7 @@ path = "src/main.rs"
 
 [dependencies]
 etas_intel.workspace = true
+etas_driver.workspace = true
 etas_core.workspace = true
 serde.workspace = true
 serde_json.workspace = true

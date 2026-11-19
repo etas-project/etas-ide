@@ -52,9 +52,17 @@ pub(crate) fn hover(
         .filter_map(|(id, origin)| {
             let span = origin.span();
             let symbol = snapshot.symbols.get(*id)?;
+            let declaration_name = if symbol.kind == SymbolKind::EffectAction {
+                symbol.name.rsplit('.').next().unwrap_or(&symbol.name)
+            } else {
+                &symbol.name
+            };
             (span.source == doc.source_id
-                && crate::syntax::identifier_range(&parsed, symbol.definition_span, &symbol.name)
-                    == Some(range))
+                && crate::syntax::identifier_range(
+                    &parsed,
+                    symbol.definition_span,
+                    declaration_name,
+                ) == Some(range))
             .then_some((span.range.end.0 - span.range.start.0, symbol))
         })
         .min_by_key(|(len, _)| *len);
@@ -93,6 +101,37 @@ pub(crate) fn hover(
                         }
                     }
                     Some(text)
+                })
+        })
+        .or_else(|| {
+            snapshot
+                .types
+                .checked_method_calls
+                .iter()
+                .find_map(|(expr, selected)| {
+                    let call = snapshot.hir.exprs.get(*expr)?.span(&snapshot.hir.blocks);
+                    if !contains(call, doc.source_id, range)
+                        || crate::semantic_tokens::member_name_span(snapshot, *expr, &parsed)?.range
+                            != range
+                    {
+                        return None;
+                    }
+                    let declaration = snapshot
+                        .types
+                        .methods
+                        .declaration(&selected.target, &selected.evidence)?;
+                    let names = declaration
+                        .parameter_names
+                        .iter()
+                        .map(|name| name.clone().unwrap_or_default())
+                        .collect::<Vec<_>>();
+                    let owner = printer.ty(selected.receiver_type);
+                    Some(code(&printer.callable(
+                        "flow",
+                        &format!("{owner}.{}", declaration.name),
+                        &selected.signature,
+                        &names,
+                    )))
                 })
         })
         .or_else(|| {
@@ -155,6 +194,7 @@ pub(crate) fn hover(
                     "flow",
                     name,
                     &CallableSignature {
+                        parameter_interface: None,
                         generic_params: vec![],
                         params: flow.input.clone(),
                         output: flow.output,
@@ -389,10 +429,21 @@ impl Printer<'_> {
                 format!("type {}{}{repr}", symbol.name, type_params(params))
             }
             Some(SymbolTypeFact::EffectAction { signature }) => {
-                return Some(code(&self.callable(
-                    "action",
-                    &symbol.name,
+                let (prefix, selectors): (Vec<_>, Vec<_>) = signature
+                    .generic_params
+                    .iter()
+                    .cloned()
+                    .partition(|param| !signature.selector_param_names.contains(&param.name));
+                let header = format!(
+                    "action{} {}{}",
+                    self.generic_params(&prefix),
+                    symbol.name,
+                    self.generic_params(&selectors)
+                );
+                return Some(code(&self.callable_with_header(
+                    &header,
                     &CallableSignature {
+                        parameter_interface: signature.parameter_interface.clone(),
                         generic_params: signature.generic_params.clone(),
                         params: signature.params.clone(),
                         output: signature.output,
@@ -429,11 +480,23 @@ impl Printer<'_> {
         signature: &CallableSignature,
         names: &[String],
     ) -> String {
+        let header = format!(
+            "{keyword} {name}{}",
+            self.generic_params(&signature.generic_params)
+        );
+        self.callable_with_header(&header, signature, names)
+    }
+
+    fn callable_with_header(
+        &self,
+        header: &str,
+        signature: &CallableSignature,
+        names: &[String],
+    ) -> String {
         let printer = Printer {
             snapshot: self.snapshot,
             generics: &signature.generic_params,
         };
-        let generics = printer.generic_params(&signature.generic_params);
         let params = signature
             .params
             .iter()
@@ -442,6 +505,7 @@ impl Printer<'_> {
                 let ty = printer.ty(*ty);
                 names
                     .get(index)
+                    .filter(|name| !name.is_empty())
                     .map(|name| format!("{name}: {ty}"))
                     .unwrap_or(ty)
             })
@@ -453,7 +517,7 @@ impl Printer<'_> {
             .map(|row| format!(" {}", printer.row(row)))
             .unwrap_or_default();
         format!(
-            "{keyword} {name}{generics}({params}) -> {}{row}",
+            "{header}({params}) -> {}{row}",
             printer.ty(signature.output)
         )
     }
@@ -652,6 +716,7 @@ fn type_name(
         Some(Type::Map { key, value }) => format!("Map<{}, {}>", inner(*key), inner(*value)),
         Some(Type::Set(ty)) => format!("Set<{}>", inner(*ty)),
         Some(Type::Option(ty)) => format!("Option<{}>", inner(*ty)),
+        Some(Type::Schema(ty)) => format!("Schema<{}>", inner(*ty)),
         Some(Type::Result { ok, err }) => format!("Result<{}, {}>", inner(*ok), inner(*err)),
         Some(Type::Tuple(types)) => format!("({})", args(types)),
         Some(Type::Record(record)) => format!(

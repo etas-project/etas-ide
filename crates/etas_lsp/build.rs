@@ -22,12 +22,25 @@ fn main() {
         );
         let package = matches[0];
         let version = package["version"].as_str().unwrap();
-        let source = package["source"]
-            .as_str()
-            .expect("compiler producer must be Cargo-locked git source");
-        let (_, revision) = source
-            .rsplit_once('#')
-            .expect("compiler producer must have a git revision");
+        let revision = match package.get("source").and_then(toml::Value::as_str) {
+            Some(source) => {
+                source
+                    .rsplit_once('#')
+                    .expect("compiler producer must have a git revision")
+                    .1
+            }
+            None => {
+                assert_ne!(
+                    env::var("PROFILE").unwrap(),
+                    "release",
+                    "release compiler producer must be Cargo-locked git source"
+                );
+                // Cargo path patches intentionally carry no git source. A
+                // development build must identify them without claiming the
+                // pinned release revision compiled those local changes.
+                "workspace"
+            }
+        };
         println!("cargo:rustc-env=ETAS_{key}_VERSION={version}");
         println!("cargo:rustc-env=ETAS_{key}_REVISION={revision}");
     }

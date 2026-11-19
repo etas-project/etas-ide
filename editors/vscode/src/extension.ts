@@ -43,6 +43,10 @@ export async function activate(context: ExtensionContext) {
         const clientOptions: LanguageClientOptions = {
             documentSelector: [{ scheme: 'file', language: 'etas' }, { scheme: 'untitled', language: 'etas' }],
             outputChannel: output,
+            initializationOptions: () => {
+                const std = workspace.getConfiguration('etas');
+                return { stdProvider: std.get('stdProvider', 'artifact'), sysroot: std.get<string>('sysroot') || undefined };
+            },
             synchronize: {
                 fileEvents: [
                     workspace.createFileSystemWatcher('**/*.es'),
@@ -65,6 +69,12 @@ export async function activate(context: ExtensionContext) {
                 window.showInformationMessage('Etas language server restarted');
             }),
         );
+
+        context.subscriptions.push(workspace.onDidChangeConfiguration(async (event) => {
+            if (event.affectsConfiguration('etas.stdProvider') || event.affectsConfiguration('etas.sysroot')) {
+                await client?.restart();
+            }
+        }));
 
         await client.start();
         output.appendLine(`Etas language server started: ${serverPath}`);

@@ -36,20 +36,27 @@ async function analysisStatus(client, accept) {
     throw new Error('analysis status timeout: ' + JSON.stringify(client.notifications.filter(message => message.method === 'etas/analysisStatus')));
 }
 
+function lockedProducer(name) {
+    const packages = fs.readFileSync(path.resolve(__dirname, '../../../Cargo.lock'), 'utf8')
+        .split(/^\[\[package\]\]\r?$/m).slice(1);
+    const matches = packages.filter(table => table.match(/^name = "([^"]+)"$/m)?.[1] === name);
+    assert.equal(matches.length, 1, `one Cargo-locked ${name} identity`);
+    const version = matches[0].match(/^version = "([^"]+)"$/m)[1];
+    const source = matches[0].match(/^source = "([^"]+)"$/m)?.[1];
+    return { version, revision: source ? source.slice(source.lastIndexOf('#') + 1) : 'workspace' };
+}
+
 test('current compiler: agent-scoped infer, build identity, and analysis status lifecycle', { timeout: 120000 }, async t => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'etas-infer-status-e2e-'));
     const client = new LspClient();
     t.after(async () => { await client.stop(); fs.rmSync(root, { recursive: true, force: true }); });
     const initialized = await client.initialize(pathToFileURL(root).href);
     const build = initialized.capabilities.experimental.etasBuild;
-    assert.equal(build.server, '0.3.5');
-    assert.equal(build.frontend.version, '0.3.1');
-    assert.equal(build.frontend.revision, '5fad86c409aae351da1b74ae0cb7d5d91cc35f26');
-    assert.equal(build.core.revision, '563dedc19ffbaa580cb8bc24e04c6d3d30261de1');
-    assert.equal(build.std.version, '0.1.4');
-    assert.equal(build.std.revision, build.core.revision);
-    assert.equal(build.driver.version, '0.1.5');
-    assert.equal(build.driver.revision, 'c5af4eb8bc1a4209f1a536ac6e3ad1916c7ec42e');
+    assert.equal(build.server, require('../package.json').version);
+    for (const [key, name] of [
+        ['frontend', 'etas_frontend'], ['core', 'etas_core'],
+        ['std', 'etas_std'], ['driver', 'etas_driver'],
+    ]) assert.deepEqual(build[key], lockedProducer(name));
     assert.equal((await client.request('etas/analysisStatus')).phase, 'idle');
     const uri = pathToFileURL(path.join(root, 'main.es')).href;
     const text = 'module agents;\nagent Probe(input: string) -> string { return perform infer<string>(Prompt.new().system(Trusted("Echo the input")).data(input)); }\nflow main() -> i32 { return 0; }\n';
@@ -144,9 +151,9 @@ test('package preparation failures are published and recover after manifest chan
     client.notifications = [];
     fs.unlinkSync(manifest);
     client.notify('workspace/didChangeWatchedFiles', { changes: [{ uri: pathToFileURL(manifest).href, type: 3 }] });
+    await analysisStatus(client, status => status.phase === 'ready' && status.errors === 0);
     const recovered = await client.diagnostics(uri, 1);
     assert.ok(!recovered.some(diag => diag.code === 'package::PrepareFailed'), JSON.stringify(recovered));
-    await analysisStatus(client, status => status.phase === 'ready' && status.errors === 0);
 });
 
 test('semantic tokens: std aliases, imported types/modules, wildcard calls, and shadowing', { timeout: 120000 }, async t => {
@@ -156,7 +163,7 @@ test('semantic tokens: std aliases, imported types/modules, wildcard calls, and 
     const initialized = await client.initialize(pathToFileURL(root).href);
     const legend = initialized.capabilities.semanticTokensProvider.legend;
     const uri = pathToFileURL(path.join(root, 'main.es')).href;
-    const text = 'module tokens;\nimport std.collections.len as count;\nimport std.collections.Array as Seq;\nimport std.text as text_ops;\nimport std.text.*;\nalias Row<T> = { value: T, count: i32 };\nflow parse(args: Array<string>, seq: Seq<string>) -> usize {\n    let text = "中文😀"; let n = count(args);\n    if true { let count = n; let value = count; }\n    let length = len(text);\n    return count(args);\n}\nflow main() -> i32 { return 0; }\n';
+    const text = 'module tokens;\nimport std.text.len as count;\nimport std.collections.Array as Seq;\nimport std.text as text_ops;\nimport std.text.*;\nalias Row<T> = { value: T, count: i32 };\nflow parse(args: Array<string>, seq: Seq<string>) -> usize {\n    let text = "中文😀"; let n = count(text);\n    if true { let count = n; let value = count; }\n    let length = len(text);\n    return count(text);\n}\nflow main() -> i32 { return 0; }\n';
     client.notify('textDocument/didOpen', { textDocument: { uri, languageId: 'etas', version: 1, text } });
     assert.deepEqual((await client.diagnostics(uri, 1)).filter(diag => diag.severity === 1), []);
     const response = await client.request('textDocument/semanticTokens/full', { textDocument: { uri } });
@@ -197,7 +204,7 @@ test('member calls: arrays, chains, name collisions, UTF-16, invalid edits, and 
     const methodHover = await client.request('textDocument/hover', { textDocument: { uri }, position: {
         line: methodLines.length - 1, character: methodLines.at(-1).length,
     } });
-    assert.ok(methodHover?.contents.value.includes('flow std.collections.array_push<T>(Array<T>, T) -> Array<T> ![]'), JSON.stringify(methodHover));
+    assert.ok(methodHover?.contents.value.includes('flow Array<string>.push(self: Array<string>, value: string) -> Array<string> ![]'), JSON.stringify(methodHover));
     const fieldLines = text.slice(0, text.indexOf('holder.push;') + 'holder.'.length).split('\n');
     const fieldHover = await client.request('textDocument/hover', { textDocument: { uri }, position: {
         line: fieldLines.length - 1, character: fieldLines.at(-1).length,

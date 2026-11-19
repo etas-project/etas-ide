@@ -56,6 +56,8 @@ test('every compiler keyword is highlighted, including standalone/incomplete dec
 
 test('declaration names, aliases, annotations, primitives, and spec kinds have scopes', () => {
     assert.match(scope('public flow build() -> string', 'build'), /entity.name.function/);
+    assert.match(scope('action<T, effect E> await(task: Task<T, ![E]>) -> T;', 'await'), /entity.name.function/);
+    assert.match(scope('action<T> select<Key>(key: Key, value: T) -> T;', 'select'), /entity.name.function/);
     assert.match(scope('alias Host = string;', 'Host'), /entity.name.type/);
     assert.match(scope('spec Safe: trace = +Read;', 'trace'), /spec-kind/);
     assert.match(scope('@model("test")', '@model'), /decorator/);

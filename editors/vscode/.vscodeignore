@@ -13,3 +13,4 @@ tsconfig.json
 server/**
 !server/
 !server/etas-lsp
+!lib/**
