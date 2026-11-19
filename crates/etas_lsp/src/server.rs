@@ -19,12 +19,21 @@ struct StdInitializationOptions {
     sysroot: Option<std::path::PathBuf>,
 }
 
-#[derive(Default, serde::Deserialize)]
+#[derive(serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 enum StdProviderChoice {
-    #[default]
     Legacy,
     Artifact,
+}
+
+impl Default for StdProviderChoice {
+    fn default() -> Self {
+        if cfg!(feature = "forbid-legacy-std") {
+            Self::Artifact
+        } else {
+            Self::Legacy
+        }
+    }
 }
 
 pub struct Backend {

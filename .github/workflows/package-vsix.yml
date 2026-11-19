@@ -1,6 +1,8 @@
 name: Package VS Code Extension
 
 on:
+  pull_request:
+    branches: [main]
   workflow_dispatch:
   push:
     branches: [main]
@@ -9,9 +11,9 @@ on:
 jobs:
   package:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 60
     permissions:
-      contents: write
+      contents: read
     defaults:
       run:
         working-directory: editors/vscode
@@ -29,23 +31,51 @@ jobs:
 
       - run: npm ci
 
+      - name: Select SDK staging directory
+        run: echo "ETAS_STD_SYSROOT=$RUNNER_TEMP/etas-std-sdk" >> "$GITHUB_ENV"
+
+      - run: npm run build-std
+
       - run: npm run package:vsix -- --target linux-x64
+
+      - name: Check navigation in the packaged extension
+        run: |
+          unzip -q *.vsix -d "$RUNNER_TEMP/etas-vsix"
+          npm run test:installed -- "$RUNNER_TEMP/etas-vsix/extension"
+
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
+        with:
+          name: vsix
+          path: editors/vscode/*.vsix
+          if-no-files-found: error
+
+  release:
+    needs: package
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: vsix
 
       - name: Replace Dev Release
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete dev --yes --cleanup-tag 2>/dev/null || true
           gh release create dev *.vsix \
             --prerelease \
+            --target "$GITHUB_SHA" \
             --title "Dev Build (${{ github.sha }})" \
             --notes "Built from commit ${{ github.sha }}"
 
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/v')
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" *.vsix --clobber

@@ -2,8 +2,7 @@ const { spawn } = require('node:child_process');
 const path = require('node:path');
 
 class LspClient {
-    constructor() {
-        const binary = process.env.ETAS_LSP_BIN || path.resolve(__dirname, '../../../target/debug/etas-lsp');
+    constructor(binary = process.env.ETAS_LSP_BIN || path.resolve(__dirname, '../../../target/debug/etas-lsp')) {
         this.process = spawn(binary, [], { stdio: ['pipe', 'pipe', 'pipe'] });
         this.pending = new Map();
         this.notifications = [];
@@ -63,9 +62,9 @@ class LspClient {
             }
         }
     }
-    async initialize(rootUri = null) {
+    async initialize(rootUri = null, initializationOptions) {
         const result = await this.request('initialize', {
-            processId: process.pid, rootUri,
+            processId: process.pid, rootUri, initializationOptions,
             capabilities: { workspace: { semanticTokens: { refreshSupport: true } } },
         });
         this.notify('initialized', {});

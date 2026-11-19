@@ -17,19 +17,23 @@ toolchain with `strip`.
 git clone https://github.com/etas-project/etas-ide.git
 cd etas-ide/editors/vscode
 npm ci
+export ETAS_STD_SYSROOT="$(mktemp -d)"
+npm run build-std
 npm run package:vsix
 code --install-extension etas-*.vsix
 ```
 
-Open an `.es` file. The extension bundles its language server.
+Open an `.es` file. To navigate to the bundled Etas standard library sources,
+set `etas.stdProvider` to `artifact` in VS Code settings.
 
 For a package project, open the folder containing `etas.toml` so the server can
 load the project and its imports. Build and run programs with the
 [Etas CLI](https://github.com/etas-project/etas#quickstart); the extension provides
 editing support, not a second interpreter.
 
-`package:vsix` builds the Rust server and extension, then creates the installable
-VSIX. Detailed settings and development commands are linked below.
+`build-std` builds the SDK from the revisions in `Cargo.lock`. To reuse an
+existing matching SDK, set `ETAS_STD_SYSROOT` to the directory containing
+`std/manifest.json`. `package:vsix` bundles that SDK and the language server.
 
 ## Documentation
 

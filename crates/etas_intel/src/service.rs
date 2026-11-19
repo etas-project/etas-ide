@@ -202,6 +202,20 @@ impl LanguageService {
         self.workspace_root = Some(canonical_or_original(path));
     }
 
+    fn set_std_provider(&mut self, provider: StdProvider) {
+        self.std_provider = provider;
+        // Package interfaces and lock compatibility are projected using the
+        // selected registry. Discard both completed and in-flight projections.
+        self.package_state = None;
+        self.pending_package_prepare = None;
+        self.package_error = None;
+        if self.project_id.is_some() || !self.documents.is_empty() {
+            self.rebuild_project();
+        } else {
+            self.session = std_session(&self.std_provider);
+        }
+    }
+
     fn publish_analysis(
         &mut self,
         phase: AnalysisPhase,
@@ -2112,12 +2126,7 @@ pub fn spawn_service_with_events() -> (
                 });
                 match cmd {
                     Command::SetStdProvider(provider) => {
-                        service.std_provider = provider;
-                        if service.project_id.is_some() {
-                            service.rebuild_project();
-                        } else {
-                            service.session = std_session(&service.std_provider);
-                        }
+                        service.set_std_provider(provider);
                     }
                     Command::SetWorkspaceRoot(path) => {
                         service.set_workspace_root(path);

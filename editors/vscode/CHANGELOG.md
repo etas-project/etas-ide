@@ -2,6 +2,11 @@
 
 All notable changes to the "etas" extension will be documented in this file.
 
+## 0.5.4 - 2026-11-18
+
+- Rebuild package interfaces and retry package preparation when selecting a standard-library provider, discarding metadata prepared under the previous SDK.
+- Validate language-server compiler versions and revisions against the current Cargo lockfile.
+
 ## 0.5.2 - 2026-11-16
 
 - Align with std 0.3.1 and frontend 0.12.2; installed Console and I/O declarations navigate to their Etas source, including the prelude IOError re-export.

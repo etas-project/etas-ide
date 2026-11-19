@@ -154,10 +154,13 @@ async function run() {
             result => result?.visible && result.connection === 'running' && result.phase === 'ready' && result.errors === 0 && result.initialSyncComplete,
             'status bar must reflect the completed analysis');
         assert.ok(status.text.includes('$(check)'), JSON.stringify(status));
-        assert.ok(status.tooltip.includes('Frontend: 0.12.0 @ d2e6840e'), status.tooltip);
-        assert.ok(status.tooltip.includes('Core: 0.2.1 @ 113a5e01'), status.tooltip);
-        assert.ok(status.tooltip.includes('Std: 0.3.0 @ 113a5e01'), status.tooltip);
-        assert.ok(status.tooltip.includes('Driver: 0.3.0 @ 7e048b1f'), status.tooltip);
+        assert.equal(status.build.server, require('../package.json').version);
+        for (const [key, label] of [
+            ['frontend', 'Frontend'], ['core', 'Core'], ['std', 'Std'], ['driver', 'Driver'],
+        ]) {
+            const identity = status.build[key];
+            assert.ok(status.tooltip.includes(`${label}: ${identity.version} @ ${identity.revision.slice(0, 8)}`), status.tooltip);
+        }
         assert.equal(typeof status.elapsedMs, 'number');
         const plain = await vscode.workspace.openTextDocument({ language: 'plaintext', content: 'status visibility probe' });
         await vscode.window.showTextDocument(plain);
@@ -169,7 +172,7 @@ async function run() {
         assert.ok(registered.includes('etas.showStatus'));
         await vscode.commands.executeCommand('etas.restartServer');
         await eventually(() => extension.exports.analysisStatus(),
-            result => result?.visible && result.connection === 'running' && result.phase === 'ready' && result.build?.server === '0.5.0' && result.initialSyncComplete,
+            result => result?.visible && result.connection === 'running' && result.phase === 'ready' && result.build?.server === require('../package.json').version && result.initialSyncComplete,
             'status must recover after a language-server restart');
         const hovers = await eventually(
             () => vscode.commands.executeCommand('vscode.executeHoverProvider', uri, doc.positionAt(valid.indexOf('square(4)'))),

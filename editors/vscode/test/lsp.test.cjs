@@ -36,20 +36,27 @@ async function analysisStatus(client, accept) {
     throw new Error('analysis status timeout: ' + JSON.stringify(client.notifications.filter(message => message.method === 'etas/analysisStatus')));
 }
 
+function lockedProducer(name) {
+    const packages = fs.readFileSync(path.resolve(__dirname, '../../../Cargo.lock'), 'utf8')
+        .split(/^\[\[package\]\]\r?$/m).slice(1);
+    const matches = packages.filter(table => table.match(/^name = "([^"]+)"$/m)?.[1] === name);
+    assert.equal(matches.length, 1, `one Cargo-locked ${name} identity`);
+    const version = matches[0].match(/^version = "([^"]+)"$/m)[1];
+    const source = matches[0].match(/^source = "([^"]+)"$/m)?.[1];
+    return { version, revision: source ? source.slice(source.lastIndexOf('#') + 1) : 'workspace' };
+}
+
 test('current compiler: agent-scoped infer, build identity, and analysis status lifecycle', { timeout: 120000 }, async t => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'etas-infer-status-e2e-'));
     const client = new LspClient();
     t.after(async () => { await client.stop(); fs.rmSync(root, { recursive: true, force: true }); });
     const initialized = await client.initialize(pathToFileURL(root).href);
     const build = initialized.capabilities.experimental.etasBuild;
-    assert.equal(build.server, '0.5.0');
-    assert.equal(build.frontend.version, '0.12.0');
-    assert.equal(build.frontend.revision, 'd2e6840e34a33b43e1581854c596bb77930656e4');
-    assert.equal(build.core.revision, '113a5e01f3719bc5c0e1c1706300656a98cf186c');
-    assert.equal(build.std.version, '0.3.0');
-    assert.equal(build.std.revision, build.core.revision);
-    assert.equal(build.driver.version, '0.3.0');
-    assert.equal(build.driver.revision, '7e048b1f2baa0410c34b5fe9987d9666189028f8');
+    assert.equal(build.server, require('../package.json').version);
+    for (const [key, name] of [
+        ['frontend', 'etas_frontend'], ['core', 'etas_core'],
+        ['std', 'etas_std'], ['driver', 'etas_driver'],
+    ]) assert.deepEqual(build[key], lockedProducer(name));
     assert.equal((await client.request('etas/analysisStatus')).phase, 'idle');
     const uri = pathToFileURL(path.join(root, 'main.es')).href;
     const text = 'module agents;\nagent Probe(input: string) -> string { return perform infer<string>(Prompt.new().system(Trusted("Echo the input")).data(input)); }\nflow main() -> i32 { return 0; }\n';

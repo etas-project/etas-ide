@@ -163,6 +163,7 @@ pub(crate) fn hover(
                     "flow",
                     name,
                     &CallableSignature {
+                        parameter_interface: None,
                         generic_params: vec![],
                         params: flow.input.clone(),
                         output: flow.output,
@@ -411,6 +412,7 @@ impl Printer<'_> {
                 return Some(code(&self.callable_with_header(
                     &header,
                     &CallableSignature {
+                        parameter_interface: signature.parameter_interface.clone(),
                         generic_params: signature.generic_params.clone(),
                         params: signature.params.clone(),
                         output: signature.output,
