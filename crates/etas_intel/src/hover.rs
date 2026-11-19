@@ -104,6 +104,37 @@ pub(crate) fn hover(
                 })
         })
         .or_else(|| {
+            snapshot
+                .types
+                .checked_method_calls
+                .iter()
+                .find_map(|(expr, selected)| {
+                    let call = snapshot.hir.exprs.get(*expr)?.span(&snapshot.hir.blocks);
+                    if !contains(call, doc.source_id, range)
+                        || crate::semantic_tokens::member_name_span(snapshot, *expr, &parsed)?.range
+                            != range
+                    {
+                        return None;
+                    }
+                    let declaration = snapshot
+                        .types
+                        .methods
+                        .declaration(&selected.target, &selected.evidence)?;
+                    let names = declaration
+                        .parameter_names
+                        .iter()
+                        .map(|name| name.clone().unwrap_or_default())
+                        .collect::<Vec<_>>();
+                    let owner = printer.ty(selected.receiver_type);
+                    Some(code(&printer.callable(
+                        "flow",
+                        &format!("{owner}.{}", declaration.name),
+                        &selected.signature,
+                        &names,
+                    )))
+                })
+        })
+        .or_else(|| {
             snapshot.hir.exprs.iter().find_map(|(id, expr)| {
                 let HirExpr::Record(record) = expr else {
                     return None;
@@ -474,6 +505,7 @@ impl Printer<'_> {
                 let ty = printer.ty(*ty);
                 names
                     .get(index)
+                    .filter(|name| !name.is_empty())
                     .map(|name| format!("{name}: {ty}"))
                     .unwrap_or(ty)
             })

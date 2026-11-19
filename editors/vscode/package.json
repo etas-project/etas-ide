@@ -85,7 +85,7 @@
             "legacy",
             "artifact"
           ],
-          "default": "legacy",
+          "default": "artifact",
           "description": "Standard library provider for the language server."
         },
         "etas.sysroot": {

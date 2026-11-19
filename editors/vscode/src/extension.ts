@@ -45,7 +45,7 @@ export async function activate(context: ExtensionContext) {
             outputChannel: output,
             initializationOptions: () => {
                 const std = workspace.getConfiguration('etas');
-                return { stdProvider: std.get('stdProvider', 'legacy'), sysroot: std.get<string>('sysroot') || undefined };
+                return { stdProvider: std.get('stdProvider', 'artifact'), sysroot: std.get<string>('sysroot') || undefined };
             },
             synchronize: {
                 fileEvents: [

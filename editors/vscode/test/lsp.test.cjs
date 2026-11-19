@@ -163,7 +163,7 @@ test('semantic tokens: std aliases, imported types/modules, wildcard calls, and 
     const initialized = await client.initialize(pathToFileURL(root).href);
     const legend = initialized.capabilities.semanticTokensProvider.legend;
     const uri = pathToFileURL(path.join(root, 'main.es')).href;
-    const text = 'module tokens;\nimport std.collections.len as count;\nimport std.collections.Array as Seq;\nimport std.text as text_ops;\nimport std.text.*;\nalias Row<T> = { value: T, count: i32 };\nflow parse(args: Array<string>, seq: Seq<string>) -> usize {\n    let text = "中文😀"; let n = count(args);\n    if true { let count = n; let value = count; }\n    let length = len(text);\n    return count(args);\n}\nflow main() -> i32 { return 0; }\n';
+    const text = 'module tokens;\nimport std.text.len as count;\nimport std.collections.Array as Seq;\nimport std.text as text_ops;\nimport std.text.*;\nalias Row<T> = { value: T, count: i32 };\nflow parse(args: Array<string>, seq: Seq<string>) -> usize {\n    let text = "中文😀"; let n = count(text);\n    if true { let count = n; let value = count; }\n    let length = len(text);\n    return count(text);\n}\nflow main() -> i32 { return 0; }\n';
     client.notify('textDocument/didOpen', { textDocument: { uri, languageId: 'etas', version: 1, text } });
     assert.deepEqual((await client.diagnostics(uri, 1)).filter(diag => diag.severity === 1), []);
     const response = await client.request('textDocument/semanticTokens/full', { textDocument: { uri } });
@@ -204,7 +204,7 @@ test('member calls: arrays, chains, name collisions, UTF-16, invalid edits, and 
     const methodHover = await client.request('textDocument/hover', { textDocument: { uri }, position: {
         line: methodLines.length - 1, character: methodLines.at(-1).length,
     } });
-    assert.ok(methodHover?.contents.value.includes('flow std.collections.array_push<T>(Array<T>, T) -> Array<T> ![]'), JSON.stringify(methodHover));
+    assert.ok(methodHover?.contents.value.includes('flow Array<string>.push(self: Array<string>, value: string) -> Array<string> ![]'), JSON.stringify(methodHover));
     const fieldLines = text.slice(0, text.indexOf('holder.push;') + 'holder.'.length).split('\n');
     const fieldHover = await client.request('textDocument/hover', { textDocument: { uri }, position: {
         line: fieldLines.length - 1, character: fieldLines.at(-1).length,

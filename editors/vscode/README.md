@@ -26,7 +26,9 @@ Changing `etas.toml`, `etas.lock`, or package-index metadata reloads analysis.
 
 ## Requirements
 
-No additional dependencies.
+The packaged language server loads the bundled standard library by default.
+To use another matching SDK, set `etas.sysroot` to its directory containing
+`std/manifest.json`. Select `legacy` in `etas.stdProvider` for compatibility.
 
 ## Installation
 
@@ -37,9 +39,17 @@ No additional dependencies.
 
 ### From source
 
-1. Clone the repository
-2. Open `editors/vscode` in VS Code
-3. Press `F5` to launch a new Extension Development Host window
+From `editors/vscode`, build the SDK, language server, and extension, then open
+an Extension Development Host.
+
+```sh
+npm ci
+export ETAS_STD_SYSROOT="$(mktemp -d)"
+npm run build-std
+npm run build-server
+npm run build
+code --extensionDevelopmentPath="$PWD"
+```
 
 ## Release Notes
 

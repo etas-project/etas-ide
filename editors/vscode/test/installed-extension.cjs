@@ -22,7 +22,7 @@ async function checkInstalledExtension(extension) {
         const app = path.join(workspace, 'app.es');
         fs.writeFileSync(app, text);
         const uri = pathToFileURL(app).href;
-        await client.initialize(pathToFileURL(workspace).href, { stdProvider: 'artifact' });
+        await client.initialize(pathToFileURL(workspace).href);
         client.notify('textDocument/didOpen', { textDocument: { uri, languageId: 'etas', version: 1, text } });
         const diagnostics = await client.diagnostics(uri, 1);
         assert.deepEqual(diagnostics.filter(diagnostic => diagnostic.severity === 1), []);

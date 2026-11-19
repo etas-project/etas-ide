@@ -596,21 +596,22 @@ impl LanguageService {
         // Add open documents that aren't project files (temporary / external),
         // but never merge files from a different src/ package into this project.
         for doc in self.documents.values() {
-            let path = uri_to_path(&doc.uri).unwrap_or_default();
-            if !seen.contains(&path) {
-                if self.workspace_root.is_some() && !self.document_belongs_to_current_project(&path)
+            let path = uri_to_path(&doc.uri);
+            if let Some(path) = &path {
+                if seen.contains(path)
+                    || (self.workspace_root.is_some()
+                        && !self.document_belongs_to_current_project(path))
                 {
                     continue;
                 }
-                let kind = self.document_source_kind(Some(&path));
-                sources.push(SourceInput {
-                    id: doc.source_id,
-                    path: Some(path.clone()),
-                    text: doc.text.clone(),
-                    kind,
-                });
-                seen.insert(path);
+                seen.insert(path.clone());
             }
+            sources.push(SourceInput {
+                id: doc.source_id,
+                kind: self.document_source_kind(path.as_deref()),
+                path,
+                text: doc.text.clone(),
+            });
         }
 
         let project_root = self
@@ -666,11 +667,7 @@ impl LanguageService {
             },
         };
 
-        if let Err(error) = self.capture_standalone_origins(&mut input) {
-            self.package_error = Some(error.to_string());
-            self.publish_unprepared_diagnostics();
-            return;
-        }
+        self.set_source_owners(&mut input);
         if let StdProvider::Artifact(provider) = &self.std_provider {
             input.options.standard_library_mode = etas_frontend::StandardLibraryMode::Artifact;
             input.options.standard_library_artifact = Some(provider.identity.clone());
@@ -680,47 +677,61 @@ impl LanguageService {
         self.analysis_stale = true;
     }
 
-    fn capture_standalone_origins(
-        &self,
-        input: &mut ProjectInput,
-    ) -> Result<(), etas_driver::DriverError> {
+    fn set_source_owners(&self, input: &mut ProjectInput) {
+        // The declaration in a vendored source overlay and its checked package
+        // interface must project to the same definition identity.
+        let environment = &mut input.environment;
+        environment.dependency_source_packages = environment
+            .external_definition_origins
+            .iter()
+            .filter_map(|origin| {
+                let package = environment
+                    .external_packages
+                    .iter()
+                    .find(|package| package.id == origin.package)?;
+                Some(etas_frontend::ProjectDependencySourcePackage {
+                    package: package.id,
+                    import_root: package.import_root.clone(),
+                    definition_package: origin.origins.package,
+                })
+            })
+            .collect();
+        if environment.local_source_package.is_some() {
+            return;
+        }
+        if input.source_root.is_some() {
+            environment.local_source_package = Some(etas_package::source_project_package_key(
+                &input.project_root,
+            ));
+            return;
+        }
         for source in &input.sources {
             if source.kind != SourceKind::SingleFileInput {
                 continue;
             }
-            let loaded = etas_driver::load_project(
-                &etas_driver::DriverOptions {
-                    std_provider: self.std_provider.clone(),
-                    cache_mode: etas_driver::DriverCacheMode::Off,
-                    ..Default::default()
-                },
-                etas_driver::LoadProjectRequest {
-                    paths: vec![source.path.clone().expect("named standalone source")],
-                    all: false,
-                    entry_policy: EntryPolicy::CompileOnly,
-                    flow: None,
-                    bin: None,
-                    source_dependency_mode: etas_driver::SourceDependencyMode::MetadataOnly,
-                },
-            )?;
-            let origins = &loaded.loaded.input.environment;
-            let package = origins
-                .local_source_package
-                .or_else(|| {
-                    origins
-                        .standalone_source_packages
-                        .first()
-                        .map(|origin| origin.package)
-                })
-                .expect("driver captures the standalone definition owner");
-            input.environment.standalone_source_packages.push(
+            let package = match &source.path {
+                Some(path) => etas_package::standalone_source_package_key(path),
+                None => {
+                    let document = self
+                        .documents
+                        .values()
+                        .find(|doc| doc.source_id == source.id)
+                        .expect("pathless source belongs to an open editor document");
+                    etas_code::PackageKey::from_canonical_fingerprint(
+                        etas_code::CodeFingerprint::of_bytes(
+                            "etas.ide.document-uri.v1",
+                            document.uri.as_bytes(),
+                        ),
+                    )
+                }
+            };
+            environment.standalone_source_packages.push(
                 etas_frontend::ProjectStandaloneSourcePackage {
                     source: source.id,
                     package,
                 },
             );
         }
-        Ok(())
     }
 
     fn append_dependency_source_overlays(
@@ -839,10 +850,8 @@ impl LanguageService {
             .is_some_and(|(path, root)| path.starts_with(root))
         {
             SourceKind::SourceProjectFile
-        } else if path.is_some_and(Path::is_file) {
-            SourceKind::SingleFileInput
         } else {
-            SourceKind::LspOverlay
+            SourceKind::SingleFileInput
         }
     }
 
@@ -1862,7 +1871,19 @@ pub(crate) fn offset_of_position(text: &str, pos: LspPosition) -> usize {
 
 fn uri_to_path(uri: &str) -> Option<PathBuf> {
     let path = url::Url::parse(uri).ok()?.to_file_path().ok()?;
-    Some(path.canonicalize().unwrap_or(path))
+    // An unsaved file can sit below a symlinked workspace directory. Resolve
+    // the existing prefix so saving the buffer keeps its definition owner.
+    for ancestor in path.ancestors() {
+        if let Ok(mut canonical) = ancestor.canonicalize() {
+            canonical.extend(
+                path.strip_prefix(ancestor)
+                    .expect("path ancestor")
+                    .components(),
+            );
+            return Some(canonical);
+        }
+    }
+    Some(path)
 }
 
 fn path_to_uri(path: &PathBuf) -> String {

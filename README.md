@@ -23,8 +23,9 @@ npm run package:vsix
 code --install-extension etas-*.vsix
 ```
 
-Open an `.es` file. To navigate to the bundled Etas standard library sources,
-set `etas.stdProvider` to `artifact` in VS Code settings.
+Open an `.es` file and use Go to Definition to navigate into the bundled
+Etas standard library. Set `etas.stdProvider` to `legacy` for a project
+that needs the compatibility provider.
 
 For a package project, open the folder containing `etas.toml` so the server can
 load the project and its imports. Build and run programs with the

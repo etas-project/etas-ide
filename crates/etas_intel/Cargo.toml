@@ -10,6 +10,7 @@ repository.workspace = true
 forbid-legacy-std = ["etas_driver/forbid-legacy-std"]
 
 [dependencies]
+etas_code.workspace = true
 etas_core.workspace = true
 etas_std.workspace = true
 etas_driver.workspace = true
